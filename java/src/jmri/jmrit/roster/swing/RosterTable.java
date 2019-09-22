@@ -21,9 +21,13 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
+import javax.swing.MenuElement;
+import javax.swing.MenuSelectionManager;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
 import javax.swing.border.Border;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -35,6 +39,7 @@ import jmri.jmrit.roster.Roster;
 import jmri.jmrit.roster.RosterEntry;
 import jmri.jmrit.roster.RosterEntrySelector;
 import jmri.jmrit.roster.rostergroup.RosterGroupSelector;
+import jmri.util.swing.JMenuUtil;
 import jmri.util.swing.JmriPanel;
 import jmri.util.swing.XTableColumnModel;
 
@@ -226,8 +231,7 @@ public class RosterTable extends JmriPanel implements RosterEntrySelector, Roste
             TableColumn tc = columnModel.getColumnByModelIndex(i);
             JCheckBoxMenuItem menuItem = new JCheckBoxMenuItem(dataTable.getModel().getColumnName(i), columnModel.isColumnVisible(tc));
             menuItem.addActionListener(new HeaderActionListener(tc));
-            popupMenu.add(menuItem);
-
+            popupMenu.add(JMenuUtil.noCloseMenuItem(menuItem));
         }
         popupMenu.show(e.getComponent(), e.getX(), e.getY());
     }

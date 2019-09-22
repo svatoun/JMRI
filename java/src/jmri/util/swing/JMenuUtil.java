@@ -1,16 +1,25 @@
 package jmri.util.swing;
 
 import java.awt.Container;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import javax.swing.Action;
 import javax.swing.ButtonGroup;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.JRadioButtonMenuItem;
+import javax.swing.MenuElement;
+import javax.swing.MenuSelectionManager;
+import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import jmri.util.SystemType;
 import jmri.util.jdom.LocaleSelector;
 import org.jdom2.Element;
@@ -218,6 +227,53 @@ public class JMenuUtil extends GuiUtilBase {
             }
         }
         return result;
+    }
+    
+    /**
+     * Workaround for checkboxes in the popup menu. Standard checkbox will
+     * close the popup when (un)selected. The UI delegate can be subclassed, but
+     * the UI's appearance will not follow the selected L&F. The workaround is
+     * to reopen the popup immediately, at the same place and with the same selection
+     * path.
+     */
+    private static class CheckboxReopener implements ChangeListener, ItemListener {
+        private final JCheckBoxMenuItem original;
+        private MenuElement[]   path;
+        
+        public CheckboxReopener(JCheckBoxMenuItem original) {
+            this.original = original;
+        }
+        
+        @Override
+        public void stateChanged(ChangeEvent e) {
+            if (original.getModel().isArmed() && original.isShowing()) {
+                path = MenuSelectionManager.defaultManager().getSelectedPath();
+            }
+        }
+
+        @Override
+        public void itemStateChanged(ItemEvent e) {
+            if (path != null) {
+                if (path[0] instanceof JPopupMenu) {
+                    JPopupMenu jp = (JPopupMenu)path[0];
+                    jp.setVisible(true);
+                }
+                MenuSelectionManager.defaultManager().setSelectedPath(path);
+                path = null;
+            }
+        }
+    }
+    
+    /**
+     * Configures the menu item so that its select/unselect will not close the menu.
+     * @param original the menu item
+     * @return the item to be placed into the menu.
+     */
+    public static JCheckBoxMenuItem noCloseMenuItem(JCheckBoxMenuItem original) {
+        CheckboxReopener reopener = new CheckboxReopener(original);
+        original.addChangeListener(reopener);
+        original.addItemListener(reopener);
+        return original;
     }
 
     private final static Logger log = LoggerFactory.getLogger(JMenuUtil.class);
