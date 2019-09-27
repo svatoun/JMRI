@@ -44,6 +44,18 @@ import org.slf4j.LoggerFactory;
  */
 public class SplitVariableValue extends VariableValue
         implements ActionListener, FocusListener {
+    
+    /**
+     * Property name for the {@link #getValueObject()} property
+     */
+    public static final String PROP_LONG_VALUE = "longValue"; // NOI18N
+    
+    /**
+     * Name of the 'value' property. Private, since "Value" is not correct
+     * according to bean patterns spec for neither "intValue", "valueObject"
+     * or other properties defined by this class and superclasses.
+     */
+    private static final String PROP_VALUE = "Value"; // NOI18N
 
     private static final int RETRY_COUNT = 2;
 
@@ -143,7 +155,8 @@ public class SplitVariableValue extends VariableValue
      * been built
      */
     public void stepTwoActions() {
-        if (currentOffset > bitCount) {
+        // the sign bit is actually unusable.
+        if (currentOffset >= bitCount) {
             String eol = System.getProperty("line.separator");
             throw new Error(
                     "Decoder File parsing error:"
@@ -333,7 +346,7 @@ public class SplitVariableValue extends VariableValue
                 long oldVal = (getValueFromText(oldContents) - mOffset) / mFactor;
 //            log.debug("Enter updatedTextField from exitField");
                 updatedTextField();
-                prop.firePropertyChange("Value", oldVal, newVal);
+                fireValueChange(oldVal, newVal);
 //            }
         }
     }
@@ -389,7 +402,7 @@ public class SplitVariableValue extends VariableValue
         long newVal = (getValueFromText(_textField.getText()) - mOffset) / mFactor;
         log.debug("Enter updatedTextField from actionPerformed");
         updatedTextField();
-        prop.firePropertyChange("Value", null, newVal);
+        fireValueChange(null, newVal);
     }
 
     /**
@@ -435,11 +448,18 @@ public class SplitVariableValue extends VariableValue
 
     @Override
     public int getIntValue() {
+        // PENDING: this will trim the value, if does not fit into integer range.
+        // maybe some marker value should be returned - but erroneous marker
+        // is not defined for {@link VariableValue#getIntValue} - other subclasses
+        // throw an exception on unreasonable input (ie string instead of int).
         return (int) ((getValueFromText(_textField.getText()) - mOffset) / mFactor);
     }
 
     @Override
     public Object getValueObject() {
+        // PENDING: is htis correct ? The textfield's value is NOT modified by moffset/mFactor, and
+        // is returnedas Integer. Possible bug, but raw value is returned for a looong time (since 2011) already.
+        // Must be reviewed.
         return Integer.valueOf(_textField.getText());
     }
 
@@ -463,12 +483,40 @@ public class SplitVariableValue extends VariableValue
             oldVal = -999;
         }
         log.debug("Variable={}; setValue with new value {} old value {}", _name, value, oldVal);
-        _textField.setText(getTextFromValue(value * mFactor + mOffset));
+        long textValue = value * mFactor + mOffset;
+        _textField.setText(getTextFromValue(textValue));
         if (oldVal != value || getState() == VariableValue.UNKNOWN) {
             actionPerformed(null);
         }
-        prop.firePropertyChange("Value", oldVal, value * mFactor + mOffset);
+        // PENDING: the code used to fire value * mFactor + mOffset, which is a text representation;
+        // but 'oldValue' was converted back using mOffset / mFactor making those two (new / old) 
+        // using different scales. Probably a bug, must review.
+        fireValueChange(oldVal, value);
         log.debug("Variable={}; exit setValue {}", _name, value);
+    }
+
+    /**
+     * Fires value change. For compatibility with {@link VariableValue#setIntValue(int)}, 
+     * it cannot fire events for values that exceed Integer capacity; but "Value" property
+     * observers need to be informed. So if the actual parameters would exceed Integer range,
+     * generic null, null event will be fired (valid according to JavaBeans spec).
+     * 
+     * @param oldVal old value of the variable
+     * @param newVal new value of the variable
+     */
+    private void fireValueChange(Long oldVal, Long newVal) {
+        prop.firePropertyChange(PROP_LONG_VALUE, oldVal, newVal);
+        if ((oldVal != null &&
+                (oldVal < Integer.MIN_VALUE || oldVal > Integer.MAX_VALUE)) ||
+            (newVal != null &&
+                (newVal < Integer.MIN_VALUE || newVal > Integer.MAX_VALUE))
+            ) {
+            prop.firePropertyChange(PROP_VALUE, null, null);
+        } else {
+            Integer ov = oldVal == null ? null : oldVal.intValue();
+            Integer nv = newVal == null ? null : newVal.intValue();
+            prop.firePropertyChange(PROP_VALUE, ov, nv);
+        }
     }
 
     Color _defaultColor;
@@ -481,7 +529,6 @@ public class SplitVariableValue extends VariableValue
         } else {
             _textField.setBackground(_defaultColor);
         }
-        // prop.firePropertyChange("Value", null, null);
     }
 
     int _columns = 1;
@@ -611,25 +658,18 @@ public class SplitVariableValue extends VariableValue
     /**
      * Assigns a priority value to a given state.
      */
-    @SuppressFBWarnings(value = {"SF_SWITCH_NO_DEFAULT", "SF_SWITCH_FALLTHROUGH"}, justification = "Intentional fallthrough to produce correct value")
     int priorityValue(int state) {
-        int value = 0;
         switch (state) {
             case AbstractValue.UNKNOWN:
-                value++;
-            //$FALL-THROUGH$
+                return 4;
             case AbstractValue.DIFF:
-                value++;
-            //$FALL-THROUGH$
+                return 3;
             case AbstractValue.EDITED:
-                value++;
-            //$FALL-THROUGH$
+                return 2;
             case AbstractValue.FROMFILE:
-                value++;
-            //$FALL-THROUGH$
+                return 1;
             default:
-                //$FALL-THROUGH$
-                return value;
+                return 0;
         }
     }
 
