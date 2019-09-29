@@ -209,7 +209,7 @@ public class SplitTextVariableValue extends SplitVariableValue {
      * firePropertyChange for "Value" with new and old contents of _textField
      */
     @Override
-    void exitField() {
+    public void exitField() {
         // there may be a lost focus event left in the queue when disposed so protect
         String oldVal = oldContents;
         String newVal = _textField.getText();

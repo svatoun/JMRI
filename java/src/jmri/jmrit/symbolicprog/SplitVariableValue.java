@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
-import javax.swing.text.Document;
+import jmri.jmrit.symbolicprog.comp.JmriComponents;
 import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import jmri.util.CvUtil;
 import org.slf4j.Logger;
@@ -44,7 +44,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class SplitVariableValue extends VariableValue
-        implements ActionListener, FocusListener {
+        implements ActionListener, FocusListener, JmriComponents.UIDelegate {
 
     private static final int RETRY_COUNT = 2;
 
@@ -312,7 +312,7 @@ public class SplitVariableValue extends VariableValue
     /**
      * Saves contents of _textField to oldContents.
      */
-    void enterField() {
+    public void enterField() {
         oldContents = _textField.getText();
     }
 
@@ -321,7 +321,7 @@ public class SplitVariableValue extends VariableValue
      * <br><br>
      * firePropertyChange for "Value" with new and old contents of _textField
      */
-    void exitField() {
+    public void exitField() {
         // there may be a lost focus event left in the queue when disposed so protect
         if (_textField != null && !oldContents.equals(_textField.getText())) {
             long newFieldVal = getValueFromText(_textField.getText());
@@ -489,7 +489,8 @@ public class SplitVariableValue extends VariableValue
 
     @Override
     public Component getNewRep(String format) {
-        JTextField value = new VarTextField(_textField.getDocument(), _textField.getText(), _columns, this);
+        JTextField value = JmriComponents.getDefault().createVarTextField(
+                _textField.getDocument(), _textField.getText(), _columns, this);
         if (getReadOnly() || getInfoOnly()) {
             value.setEditable(false);
         }
@@ -737,62 +738,9 @@ public class SplitVariableValue extends VariableValue
     // stored reference to the JTextField
     JTextField _textField = null;
 
-    /* Internal class extends a JTextField so that its color is consistent with
-     * an underlying variable
-     *
-     * @author Bob Jacobsen   Copyright (C) 2001
-     *
-     */
-    public class VarTextField extends JmriTextField {
-
-        VarTextField(Document doc, String text, int col, SplitVariableValue var) {
-            super(doc, text, col);
-            _var = var;
-            // get the original color right
-            setBackground(_var._textField.getBackground());
-            // listen for changes to ourself
-            addActionListener(new java.awt.event.ActionListener() {
-                @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
-                    thisActionPerformed(e);
-                }
-            });
-            addFocusListener(new java.awt.event.FocusListener() {
-                @Override
-                public void focusGained(FocusEvent e) {
-                    log.debug("Variable={}; focusGained", _name);
-                    enterField();
-                }
-
-                @Override
-                public void focusLost(FocusEvent e) {
-                    log.debug("Variable={}; focusLost", _name);
-                    exitField();
-                }
-            });
-            // listen for changes to original state
-            _var.addPropertyChangeListener(new java.beans.PropertyChangeListener() {
-                @Override
-                public void propertyChange(java.beans.PropertyChangeEvent e) {
-                    originalPropertyChanged(e);
-                }
-            });
-        }
-
-        SplitVariableValue _var;
-
-        void thisActionPerformed(java.awt.event.ActionEvent e) {
-            // tell original
-            _var.actionPerformed(e);
-        }
-
-        void originalPropertyChanged(java.beans.PropertyChangeEvent e) {
-            // update this color from original state
-            if (e.getPropertyName().equals("State")) {
-                setBackground(_var._textField.getBackground());
-            }
-        }
-
+    @Override
+    public Color getBackground() {
+        return _textField.getBackground();
     }
 
     /**

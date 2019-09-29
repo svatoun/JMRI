@@ -20,6 +20,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.DefaultTreeSelectionModel;
 import javax.swing.tree.TreePath;
+import jmri.jmrit.symbolicprog.comp.JmriComponents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,7 +102,8 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
     }
 
     public void lastItem() {
-        _value = new JComboBox<>(java.util.Arrays.copyOf(_itemArray, _nstored));
+        _value = JmriComponents.getDefault().addStatusBorder(
+                new JComboBox<>(java.util.Arrays.copyOf(_itemArray, _nstored)));
         // finish initialization
         _value.setActionCommand("");
         _defaultColor = _value.getBackground();
@@ -141,7 +143,7 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
         for (ComboCheckBox c : comboCBs) {
             c.setVisible(a);
         }
-        for (VarComboBox c : comboVars) {
+        for (JComboBox c : comboVars) {
             c.setVisible(a);
         }
         for (ComboRadioButtons c : comboRBs) {
@@ -394,7 +396,8 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
                 return dScroll;
             default: {
                 // return a new JComboBox representing the same model
-                VarComboBox b = new VarComboBox(_value.getModel(), this);
+                VarComboBox b = JmriComponents.getDefault().addStatusBorder(
+                        new VarComboBox(_value.getModel(), this));
                 comboVars.add(b);
                 if (getReadOnly() || getInfoOnly()) {
                     b.setEnabled(false);
@@ -406,7 +409,7 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
     }
 
     private final List<ComboCheckBox> comboCBs = new ArrayList<>();
-    private final List<VarComboBox> comboVars = new ArrayList<>();
+    private final List<JComboBox> comboVars = new ArrayList<>();
     private final List<ComboRadioButtons> comboRBs = new ArrayList<>();
     private final List<JTree> trees = new ArrayList<>();
 
@@ -544,20 +547,27 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
         EnumVariableValue _var;
         transient java.beans.PropertyChangeListener _l = null;
 
+        @Override
+        public void addNotify() {
+            super.addNotify();
+            _var.addPropertyChangeListener(_l);
+        }
+        
+        @Override
+        public void removeNotify() {
+            if (_var != null) {
+                _var.addPropertyChangeListener(_l);
+                _var = null;
+            }
+            super.removeNotify();
+        }
+
         void originalPropertyChanged(java.beans.PropertyChangeEvent e) {
             // update this color from original state
-            if (e.getPropertyName().equals("State")) {
+            if (_var != null && e.getPropertyName().equals("State")) {
                 setBackground(_var._value.getBackground());
                 setOpaque(true);
             }
-        }
-
-        public void dispose() {
-            if (_var != null && _l != null) {
-                _var.removePropertyChangeListener(_l);
-            }
-            _l = null;
-            _var = null;
         }
     }
 

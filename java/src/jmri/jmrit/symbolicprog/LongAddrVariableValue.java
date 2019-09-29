@@ -10,8 +10,8 @@ import java.util.HashMap;
 import javax.annotation.Nonnull;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
-import javax.swing.text.Document;
 import jmri.jmrit.symbolicprog.comp.JmriTextField;
+import jmri.jmrit.symbolicprog.comp.JmriComponents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class LongAddrVariableValue extends VariableValue
-        implements ActionListener, FocusListener {
+        implements ActionListener, FocusListener, JmriComponents.UIDelegate {
 
     public LongAddrVariableValue(@Nonnull String name, @Nonnull String comment, @Nonnull String cvName,
             boolean readOnly, boolean infoOnly, boolean writeOnly, boolean opsOnly,
@@ -83,11 +83,13 @@ public class LongAddrVariableValue extends VariableValue
 
     String oldContents = "";
 
-    void enterField() {
+    @Override
+    public void enterField() {
         oldContents = _value.getText();
     }
 
-    void exitField() {
+    @Override
+    public void exitField() {
         // this _can_ be invoked after dispose, so protect
         if (_value != null && !oldContents.equals(_value.getText())) {
             int newVal = Integer.parseInt(_value.getText());
@@ -220,7 +222,8 @@ public class LongAddrVariableValue extends VariableValue
 
     @Override
     public Component getNewRep(String format) {
-        return updateRepresentation(new VarTextField(_value.getDocument(), _value.getText(), 5, this));
+        return updateRepresentation(
+                JmriComponents.getDefault().createVarTextField(_value.getDocument(), _value.getText(), 5, this));
     }
     private int _progState = 0;
     private static final int IDLE = 0;
@@ -412,66 +415,10 @@ public class LongAddrVariableValue extends VariableValue
 
     // stored value
     JTextField _value = null;
-
-    /* Internal class extends a JTextField so that its color is consistent with
-     * an underlying variable
-     *
-     * @author   Bob Jacobsen   Copyright (C) 2001
-     */
-    public class VarTextField extends JmriTextField {
-
-        VarTextField(Document doc, String text, int col, LongAddrVariableValue var) {
-            super(doc, text, col);
-            _var = var;
-            // get the original color right
-            setBackground(_var._value.getBackground());
-            // listen for changes to ourself
-            addActionListener(new java.awt.event.ActionListener() {
-                @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
-                    thisActionPerformed(e);
-                }
-            });
-            addFocusListener(new java.awt.event.FocusListener() {
-                @Override
-                public void focusGained(FocusEvent e) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("focusGained");
-                    }
-                    enterField();
-                }
-
-                @Override
-                public void focusLost(FocusEvent e) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("focusLost");
-                    }
-                    exitField();
-                }
-            });
-            // listen for changes to original state
-            _var.addPropertyChangeListener(new java.beans.PropertyChangeListener() {
-                @Override
-                public void propertyChange(java.beans.PropertyChangeEvent e) {
-                    originalPropertyChanged(e);
-                }
-            });
-        }
-
-        LongAddrVariableValue _var;
-
-        void thisActionPerformed(java.awt.event.ActionEvent e) {
-            // tell original
-            _var.actionPerformed(e);
-        }
-
-        void originalPropertyChanged(java.beans.PropertyChangeEvent e) {
-            // update this color from original state
-            if (e.getPropertyName().equals("State")) {
-                setBackground(_var._value.getBackground());
-            }
-        }
-
+    
+    @Override
+    public Color getBackground() {
+        return _value.getBackground();
     }
 
     // clean up connections when done
