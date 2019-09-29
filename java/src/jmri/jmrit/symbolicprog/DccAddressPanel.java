@@ -9,6 +9,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +35,7 @@ import org.slf4j.LoggerFactory;
  */
 public class DccAddressPanel extends JPanel {
 
-    JTextField val = new JTextField(6);
+    JTextField val = new JmriTextField(6);
 
     VariableValue primaryAddr = null;
     VariableValue extendAddr = null;

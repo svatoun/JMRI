@@ -5,6 +5,7 @@ import javax.swing.JLabel;
 import javax.swing.JTextField;
 import jmri.ProgListener;
 import jmri.Programmer;
+import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +30,7 @@ public class CvValue extends AbstractValue implements ProgListener {
     public CvValue(String num, Programmer pProgrammer) {
         _num = num;
         mProgrammer = pProgrammer;
-        _tableEntry = new JTextField("0", 3);
+        _tableEntry = new JmriTextField("0", 3);
         _defaultColor = _tableEntry.getBackground();
         _tableEntry.setBackground(COLOR_UNKNOWN);
     }
@@ -41,7 +42,7 @@ public class CvValue extends AbstractValue implements ProgListener {
             log.error("cvName == null in ctor num: " + num); // NOI18N
         }
         mProgrammer = pProgrammer;
-        _tableEntry = new JTextField("0", 3);
+        _tableEntry = new JmriTextField("0", 3);
         _defaultColor = _tableEntry.getBackground();
         _tableEntry.setBackground(COLOR_UNKNOWN);
     }

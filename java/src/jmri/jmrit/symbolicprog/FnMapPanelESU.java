@@ -19,6 +19,7 @@ import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import jmri.jmrit.roster.RosterEntry;
+import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import jmri.util.CvUtil;
 import jmri.util.FileUtil;
 import jmri.util.jdom.LocaleSelector;
@@ -678,7 +679,7 @@ public final class FnMapPanelESU extends JPanel {
             for (int iRow = 0; iRow < numRows; iRow++) {
                 iVarIndex[itemNum][iRow] = 0;
                 for (int outBlockNum = 0; outBlockNum < outBlockLength.length; outBlockNum++) {
-                    summaryLine[iRow][outBlockNum] = new JTextField(20);
+                    summaryLine[iRow][outBlockNum] = new JmriTextField(20);
                     summaryLine[iRow][outBlockNum].setHorizontalAlignment(JTextField.LEFT);
                     summaryLine[iRow][outBlockNum].setEditable(false);
                 }

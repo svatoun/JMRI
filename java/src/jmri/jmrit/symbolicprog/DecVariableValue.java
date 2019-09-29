@@ -2,6 +2,7 @@ package jmri.jmrit.symbolicprog;
 
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Graphics;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusEvent;
@@ -13,6 +14,7 @@ import javax.swing.JLabel;
 import javax.swing.JSlider;
 import javax.swing.JTextField;
 import javax.swing.text.Document;
+import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +33,7 @@ public class DecVariableValue extends VariableValue
         super(name, comment, cvName, readOnly, infoOnly, writeOnly, opsOnly, cvNum, mask, v, status, stdname);
         _maxVal = maxVal;
         _minVal = minVal;
-        _value = new JTextField("0", fieldLength());
+        _value = new JmriTextField("0", fieldLength());
         _defaultColor = _value.getBackground();
         _value.setBackground(COLOR_UNKNOWN);
         // connect to the JTextField value, cv
@@ -407,7 +409,7 @@ public class DecVariableValue extends VariableValue
      *
      * @author   Bob Jacobsen   Copyright (C) 2001
      */
-    public class VarTextField extends JTextField {
+    public class VarTextField extends JmriTextField {
 
         VarTextField(Document doc, String text, int col, DecVariableValue var) {
             super(doc, text, col);
@@ -460,7 +462,7 @@ public class DecVariableValue extends VariableValue
                 setBackground(_var._value.getBackground());
             }
         }
-
+        
     }
 
     // clean up connections when done

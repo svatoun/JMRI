@@ -11,6 +11,7 @@ import javax.annotation.Nonnull;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
 import javax.swing.text.Document;
+import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,8 @@ public class LongAddrVariableValue extends VariableValue
         super(name, comment, cvName, readOnly, infoOnly, writeOnly, opsOnly, cvNum, mask, v, status, stdname);
         _maxVal = maxVal;
         _minVal = minVal;
-        _value = new JTextField("0", 5);
+        _value = new JmriTextField("0", 5);
+        _value.setOpaque(true);
         _defaultColor = _value.getBackground();
         _value.setBackground(COLOR_UNKNOWN);
         // connect to the JTextField value, cv
@@ -416,7 +418,7 @@ public class LongAddrVariableValue extends VariableValue
      *
      * @author   Bob Jacobsen   Copyright (C) 2001
      */
-    public class VarTextField extends JTextField {
+    public class VarTextField extends JmriTextField {
 
         VarTextField(Document doc, String text, int col, LongAddrVariableValue var) {
             super(doc, text, col);

@@ -13,6 +13,7 @@ import java.util.List;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
 import javax.swing.text.Document;
+import jmri.jmrit.symbolicprog.comp.JmriTextField;
 import jmri.util.CvUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +60,7 @@ public class SplitVariableValue extends VariableValue
         _maxVal = maxVal;
         _minVal = minVal;
         _cvNum = cvNum;
-        _textField = new JTextField("0");
+        _textField = new JmriTextField("0");
         _defaultColor = _textField.getBackground();
         _textField.setBackground(COLOR_UNKNOWN);
         mFactor = pFactor;
@@ -453,7 +454,7 @@ public class SplitVariableValue extends VariableValue
             return _textField;
         }
     }
-
+    
     public void setValue(long value) {
         log.debug("Variable={}; enter setValue {}", _name, value);
         long oldVal;
@@ -470,7 +471,7 @@ public class SplitVariableValue extends VariableValue
         prop.firePropertyChange("Value", oldVal, value * mFactor + mOffset);
         log.debug("Variable={}; exit setValue {}", _name, value);
     }
-
+    
     Color _defaultColor;
 
     // implement an abstract member to set colors
@@ -742,7 +743,7 @@ public class SplitVariableValue extends VariableValue
      * @author Bob Jacobsen   Copyright (C) 2001
      *
      */
-    public class VarTextField extends JTextField {
+    public class VarTextField extends JmriTextField {
 
         VarTextField(Document doc, String text, int col, SplitVariableValue var) {
             super(doc, text, col);
