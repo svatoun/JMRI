@@ -33,7 +33,7 @@ public class ConstantValue extends VariableValue {
             _value.addItem(i);
         }
     }
-
+    
     /**
      * Create a null object. Normally only used for tests and to pre-load
      * classes.
@@ -145,6 +145,11 @@ public class ConstantValue extends VariableValue {
 
     List<JCheckBox> comboCBs = new ArrayList<JCheckBox>();
     List<JRadioButton> comboRBs = new ArrayList<JRadioButton>();
+    
+    @Override
+    Color getDefaultColor() {
+        return null;
+    }
 
     // implement an abstract member to set colors
     @Override

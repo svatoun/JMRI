@@ -2,19 +2,14 @@ package jmri.jmrit.symbolicprog;
 
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Graphics;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.FocusEvent;
-import java.awt.event.FocusListener;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Hashtable;
 import javax.swing.JLabel;
 import javax.swing.JSlider;
 import javax.swing.JTextField;
-import jmri.jmrit.symbolicprog.comp.JmriTextField;
-import jmri.jmrit.symbolicprog.comp.JmriComponents;
+import jmri.jmrit.symbolicprog.swing.JmriComponents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +19,7 @@ import org.slf4j.LoggerFactory;
  * @author Bob Jacobsen Copyright (C) 2001
  */
 public class DecVariableValue extends VariableValue
-        implements ActionListener, FocusListener, JmriComponents.UIDelegate {
+        implements JmriComponents.UIDelegate {
 
     public DecVariableValue(String name, String comment, String cvName,
             boolean readOnly, boolean infoOnly, boolean writeOnly, boolean opsOnly,
@@ -33,12 +28,10 @@ public class DecVariableValue extends VariableValue
         super(name, comment, cvName, readOnly, infoOnly, writeOnly, opsOnly, cvNum, mask, v, status, stdname);
         _maxVal = maxVal;
         _minVal = minVal;
-        _value = new JmriTextField("0", fieldLength());
+        _value = JmriComponents.getDefault().textField(null, "0", fieldLength(), this);
         _defaultColor = _value.getBackground();
         _value.setBackground(COLOR_UNKNOWN);
         // connect to the JTextField value, cv
-        _value.addActionListener(this);
-        _value.addFocusListener(this);
         CvValue cv = _cvMap.get(getCvNum());
         cv.addPropertyChangeListener(this);
         cv.setState(CvValue.FROMFILE);
@@ -155,25 +148,6 @@ public class DecVariableValue extends VariableValue
         }
     }
 
-    /**
-     * FocusListener implementations
-     */
-    @Override
-    public void focusGained(FocusEvent e) {
-        if (log.isDebugEnabled()) {
-            log.debug("focusGained");
-        }
-        enterField();
-    }
-
-    @Override
-    public void focusLost(FocusEvent e) {
-        if (log.isDebugEnabled()) {
-            log.debug("focusLost");
-        }
-        exitField();
-    }
-
     // to complete this class, fill in the routines to handle "Value" parameter
     // and to read/write/hear parameter changes.
     @Override
@@ -266,7 +240,7 @@ public class DecVariableValue extends VariableValue
             }
             return b;
         } else {
-            JTextField value = JmriComponents.getDefault().createVarTextField(
+            JTextField value = JmriComponents.getDefault().textField(
                     _value.getDocument(), _value.getText(), fieldLength(), this);
             if (getReadOnly() || getInfoOnly()) {
                 value.setEditable(false);
@@ -298,7 +272,6 @@ public class DecVariableValue extends VariableValue
         }
         if (oldVal != value) {
             _value.setText(valueToText(value));
-            updatedTextField();
             prop.firePropertyChange("Value", Integer.valueOf(oldVal), Integer.valueOf(value));
         }
     }
@@ -306,6 +279,7 @@ public class DecVariableValue extends VariableValue
     Color _defaultColor;
 
     // implement an abstract member to set colors
+    @Override
     Color getDefaultColor() {
         return _defaultColor;
     }
@@ -316,11 +290,7 @@ public class DecVariableValue extends VariableValue
 
     @Override
     void setColor(Color c) {
-        if (c != null) {
-            _value.setBackground(c);
-        } else {
-            _value.setBackground(_defaultColor);
-        }
+        _value.setBackground(c);
         // prop.firePropertyChange("Value", null, null);
     }
 
@@ -407,19 +377,11 @@ public class DecVariableValue extends VariableValue
     // stored value, read-only Value
     JTextField _value = null;
     
-    @Override
-    public Color getBackground() {
-        return _value.getBackground();
-    }
-
     // clean up connections when done
     @Override
     public void dispose() {
         if (log.isDebugEnabled()) {
             log.debug("dispose");
-        }
-        if (_value != null) {
-            _value.removeActionListener(this);
         }
         _cvMap.get(getCvNum()).removePropertyChangeListener(this);
 

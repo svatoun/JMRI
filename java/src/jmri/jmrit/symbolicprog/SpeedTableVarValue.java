@@ -380,6 +380,10 @@ public class SpeedTableVarValue extends VariableValue implements ChangeListener 
     }
 
     Color _defaultColor;
+    
+    Color getDefaultColor() {
+        return _defaultColor;
+    }
 
     // implement an abstract member to set colors
     @Override

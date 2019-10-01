@@ -3,10 +3,13 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package jmri.jmrit.symbolicprog.comp;
+package jmri.jmrit.symbolicprog.swing;
 
 import java.awt.Color;
 import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import javax.swing.JComboBox;
@@ -16,6 +19,7 @@ import javax.swing.UIManager;
 import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
 import javax.swing.text.Document;
+import jmri.jmrit.symbolicprog.VariableValue;
 
 /**
  *
@@ -31,25 +35,53 @@ public class JmriComponents {
         
     }
     
-    public JTextField createVarTextField(Document doc, String initText, int col, UIDelegate ui) {
-        return addStatusBorder(new VarTextField(doc, initText, col, ui));
-    }
-
-    public <T> JComboBox<T> createComboBox(T[] items) {
-        JComboBox<T> combo = new JComboBox<>(items);
+    /**
+     * The only reason for subclassing is awkward initialization of a default color in
+     * various *Variable subclasses. So will sync background color to the desired one
+     */
+    static class VarTextField extends JTextField {
+        private final UIDelegate uiDelegate;
         
-        return combo;
+        public VarTextField(UIDelegate uidel, Document doc, String text, int columns) {
+            super(doc, text, columns);
+            this.uiDelegate = uidel;
+        }
+
+        public void addNotify() {
+            super.addNotify();
+            setBackground(uiDelegate.getStateColor());
+        }
     }
     
-    public <T extends JComponent> T addStatusDecorator(T component) {
+    public JTextField textField(Document doc, String initText, int col, UIDelegate ui) {
+        return addStatusDecorator(new VarTextField(ui, doc, initText, col), ui);
+    }
+
+    public <T> JComboBox<T> comboBox(T[] items, UIDelegate del) {
+        JComboBox<T> combo = new JComboBox<>(items);
+        return addStatusDecorator(combo, del);
+    }
+    
+    public <T extends JComponent> T addStatusDecorator(T component, UIDelegate del) {
         assert component != null;
-        if (component instanceof JTextField) {
-            return addStatusBorder(component);
+        EventForwarder fwd = new EventForwarder(del);
+        /*
+        if (component instanceof JComboBox) {
+            addStatusBorder(component, del);
+            ((JComboBox)component).addActionListener(fwd);
+        } else if (component instanceof JTextField) {
+            addStatusBorder(component, del);
+            ((JTextField)component).addActionListener(fwd);
         } else {
-            BorderDecorator deco = new BorderDecorator(component);
-            component.addPropertyChangeListener(deco);
-            return component;
+        */
+        if (component instanceof JTextField) {
+//            component.setName("Tree.cellEditor");
         }
+            BackColorStatusDecorator deco = new BackColorStatusDecorator(component, del);
+            component.addPropertyChangeListener(deco);
+        //}
+        component.addFocusListener(fwd);
+        return component;
     }
     
     /**
@@ -60,17 +92,17 @@ public class JmriComponents {
         /**
          * @return status background color.
          */
-        public Color getBackground();
+        public Color getStateColor();
         
         /**
          * Informs that the field was entered
          */
-        public void enterField();
+        public default void enterField() {}
         
         /**
          * Informs that the field has been exited
          */
-        public void exitField();
+        public default void exitField() {}
         
         /**
          * Attaches a listener.
@@ -105,6 +137,40 @@ public class JmriComponents {
         return jc;
     }
     
+    public <T extends JComponent> T addStatusBorder(T jc, UIDelegate ui) {
+        if (!isGTK) {
+            BackColorStatusDecorator deco = new BackColorStatusDecorator(jc, ui);
+            jc.addPropertyChangeListener(deco);
+            return jc;
+        }
+        BorderDecorator bdec = new BorderDecorator(jc);
+        jc.addPropertyChangeListener(bdec);
+        return jc;
+    }
+    
+    private static class EventForwarder implements ActionListener, FocusListener {
+        private final UIDelegate var;
+
+        public EventForwarder(UIDelegate var) {
+            this.var = var;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            var.actionPerformed(e);
+        }
+
+        @Override
+        public void focusGained(FocusEvent e) {
+            var.enterField();
+        }
+
+        @Override
+        public void focusLost(FocusEvent e) {
+            var.exitField();
+        }
+    }
+    
     private static class BackColorStatusDecorator implements PropertyChangeListener {
         private final UIDelegate delegate;
         private final JComponent component;
@@ -112,13 +178,17 @@ public class JmriComponents {
         public BackColorStatusDecorator(JComponent component, UIDelegate delegate) {
             this.delegate = delegate;
             this.component = component;
+            Color c = delegate.getStateColor();
+            if (c != null && c != VariableValue.stateColorFromValue(VariableValue.UNKNOWN)) {
+                component.setBackground(c);
+            }
             delegate.addPropertyChangeListener(this);
         }
         
         @Override
         public void propertyChange(PropertyChangeEvent evt) {
             if (evt.getPropertyName().equals("State")) {
-                component.setBackground(delegate.getBackground());
+                component.setBackground(delegate.getStateColor());
                 component.setOpaque(true);
             }
         }

@@ -3,7 +3,6 @@ package jmri.jmrit.symbolicprog;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.awt.Component;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -221,7 +220,6 @@ public class CompositeVariableValue extends EnumVariableValue {
 
         // connect to the JComboBox model so we'll see changes.
         _value.setActionCommand("");            // so we can tell where change comes from
-        _value.addActionListener(this);
     }
 
     @Override

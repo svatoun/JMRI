@@ -1,5 +1,6 @@
 package jmri.jmrit.symbolicprog;
 
+import java.awt.Color;
 import java.awt.Component;
 import java.util.HashMap;
 import javax.swing.JComponent;
@@ -69,6 +70,8 @@ public abstract class VariableValue extends AbstractValue implements java.beans.
      * @return Value as a native-form Object
      */
     abstract public Object getValueObject();
+
+    abstract Color getDefaultColor();
 
     /**
      * @return User-desired value, which may or may not be an integer
@@ -294,37 +297,39 @@ public abstract class VariableValue extends AbstractValue implements java.beans.
     public int getState() {
         return _state;
     }
+    
+    /**
+     * Determines the appropriate color for the given value sync state.
+     * @param state value state
+     * @return color representing the value or {@code null}.
+     */
+    public Color getStateColor(int state) {
+        return stateColorFromValue(state);
+    }
+    
+    /**
+     * Returns the color appropriate for the current state.
+     * @return state color
+     */
+    public Color getStateColor() {
+        if (getState() == UNKNOWN) {
+            return getDefaultColor();
+        }
+        Color c = getStateColor(getState());
+        if (c == null) {
+            return getDefaultColor();
+        } else {
+            return c;
+        }
+    }
 
     public void setState(int state) {
-        switch (state) {
-            case UNKNOWN:
-                setColor(COLOR_UNKNOWN);
-                break;
-            case EDITED:
-                setColor(COLOR_EDITED);
-                break;
-            case READ:
-                setColor(COLOR_READ);
-                break;
-            case STORED:
-                setColor(COLOR_STORED);
-                break;
-            case FROMFILE:
-                setColor(COLOR_FROMFILE);
-                break;
-            case SAME:
-                setColor(COLOR_SAME);
-                break;
-            case DIFF:
-                setColor(COLOR_DIFF);
-                break;
-            default:
-                log.error("Inconsistent state: " + _state);
-        }
-        if (_state != state || _state == UNKNOWN) {
-            prop.firePropertyChange("State", Integer.valueOf(_state), Integer.valueOf(state));
-        }
+        int oldState = _state;
         _state = state;
+        setColor(getStateColor(state));
+        if (oldState != state || oldState == UNKNOWN) {
+            prop.firePropertyChange("State", Integer.valueOf(oldState), Integer.valueOf(state));
+        }
     }
     private int _state = UNKNOWN;
 

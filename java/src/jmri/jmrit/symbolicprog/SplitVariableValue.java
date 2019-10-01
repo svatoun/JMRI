@@ -4,16 +4,16 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.FocusEvent;
-import java.awt.event.FocusListener;
+import java.beans.BeanInfo;
+import java.beans.IntrospectionException;
+import java.beans.Introspector;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
-import jmri.jmrit.symbolicprog.comp.JmriComponents;
-import jmri.jmrit.symbolicprog.comp.JmriTextField;
+import jmri.jmrit.roster.Roster;
+import jmri.jmrit.symbolicprog.swing.JmriComponents;
 import jmri.util.CvUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +44,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class SplitVariableValue extends VariableValue
-        implements ActionListener, FocusListener, JmriComponents.UIDelegate {
+        implements JmriComponents.UIDelegate {
 
     private static final int RETRY_COUNT = 2;
 
@@ -60,7 +60,7 @@ public class SplitVariableValue extends VariableValue
         _maxVal = maxVal;
         _minVal = minVal;
         _cvNum = cvNum;
-        _textField = new JmriTextField("0");
+        _textField = JmriComponents.getDefault().textField(null, "0", 0, this);
         _defaultColor = _textField.getBackground();
         _textField.setBackground(COLOR_UNKNOWN);
         mFactor = pFactor;
@@ -68,11 +68,15 @@ public class SplitVariableValue extends VariableValue
         // legacy format variables
         mSecondCV = pSecondCV;
         _uppermask = uppermask;
+        
+        BeanInfo bi = null;
+        try {
+            bi = Introspector.getBeanInfo(Roster.class);
+        } catch (IntrospectionException ex) {
+            
+        }
 
         // connect to the JTextField value
-        _textField.addActionListener(this);
-        _textField.addFocusListener(this);
-
         log.debug("Variable={};comment={};cvName={};cvNum={};stdname={}", _name, comment, cvName, _cvNum, stdname);
 
         // upper bit offset includes lower bit offset, and MSB bits missing from upper part
@@ -393,21 +397,6 @@ public class SplitVariableValue extends VariableValue
         prop.firePropertyChange("Value", null, newVal);
     }
 
-    /**
-     * FocusListener implementations
-     */
-    @Override
-    public void focusGained(FocusEvent e) {
-        log.debug("Variable={}; focusGained", _name);
-        enterField();
-    }
-
-    @Override
-    public void focusLost(FocusEvent e) {
-        log.debug("Variable={}; focusLost", _name);
-        exitField();
-    }
-
     // to complete this class, fill in the routines to handle "Value" parameter
     // and to read/write/hear parameter changes.
     @Override
@@ -473,15 +462,15 @@ public class SplitVariableValue extends VariableValue
     }
     
     Color _defaultColor;
+    
+    Color getDefaultColor() {
+        return _defaultColor;
+    }
 
     // implement an abstract member to set colors
     @Override
     void setColor(Color c) {
-        if (c != null) {
-            _textField.setBackground(c);
-        } else {
-            _textField.setBackground(_defaultColor);
-        }
+        _textField.setBackground(c);
         // prop.firePropertyChange("Value", null, null);
     }
 
@@ -489,7 +478,7 @@ public class SplitVariableValue extends VariableValue
 
     @Override
     public Component getNewRep(String format) {
-        JTextField value = JmriComponents.getDefault().createVarTextField(
+        JTextField value = JmriComponents.getDefault().textField(
                 _textField.getDocument(), _textField.getText(), _columns, this);
         if (getReadOnly() || getInfoOnly()) {
             value.setEditable(false);
@@ -738,11 +727,6 @@ public class SplitVariableValue extends VariableValue
     // stored reference to the JTextField
     JTextField _textField = null;
 
-    @Override
-    public Color getBackground() {
-        return _textField.getBackground();
-    }
-
     /**
      * Class to hold CV parameters for CVs used.
      */
@@ -765,9 +749,6 @@ public class SplitVariableValue extends VariableValue
     public void dispose() {
         if (log.isDebugEnabled()) {
             log.debug("dispose");
-        }
-        if (_textField != null) {
-            _textField.removeActionListener(this);
         }
         for (int i = 0; i < cvCount; i++) {
             (_cvMap.get(cvList.get(i).cvName)).removePropertyChangeListener(this);

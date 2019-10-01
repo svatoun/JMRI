@@ -3,7 +3,6 @@ package jmri.jmrit.symbolicprog;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -20,7 +19,8 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.DefaultTreeSelectionModel;
 import javax.swing.tree.TreePath;
-import jmri.jmrit.symbolicprog.comp.JmriComponents;
+import jmri.jmrit.symbolicprog.swing.JmriComponents;
+import jmri.jmrit.symbolicprog.swing.JmriComponents.UIDelegate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * @author Bob Jacobsen Copyright (C) 2001, 2002, 2003, 2013, 2014
  *
  */
-public class EnumVariableValue extends VariableValue implements ActionListener {
+public class EnumVariableValue extends VariableValue implements UIDelegate {
 
     public EnumVariableValue(String name, String comment, String cvName,
             boolean readOnly, boolean infoOnly, boolean writeOnly, boolean opsOnly,
@@ -102,15 +102,14 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
     }
 
     public void lastItem() {
-        _value = JmriComponents.getDefault().addStatusBorder(
-                new JComboBox<>(java.util.Arrays.copyOf(_itemArray, _nstored)));
+        _value = JmriComponents.getDefault().comboBox(
+                (java.util.Arrays.copyOf(_itemArray, _nstored)), this);
         // finish initialization
         _value.setActionCommand("");
         _defaultColor = _value.getBackground();
         _value.setBackground(COLOR_UNKNOWN);
         _value.setOpaque(true);
         // connect to the JComboBox model and the CV so we'll see changes.
-        _value.addActionListener(this);
         CvValue cv = _cvMap.get(getCvNum());
         cv.addPropertyChangeListener(this);
         cv.setState(CvValue.FROMFILE);
@@ -413,14 +412,15 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
     private final List<ComboRadioButtons> comboRBs = new ArrayList<>();
     private final List<JTree> trees = new ArrayList<>();
 
+    @Override
+    protected Color getDefaultColor() {
+        return _defaultColor;
+    }
+    
     // implement an abstract member to set colors
     @Override
     void setColor(Color c) {
-        if (c != null) {
-            _value.setBackground(c);
-        } else {
-            _value.setBackground(_defaultColor);
-        }
+        _value.setBackground(c);
         _value.setOpaque(true);
     }
 
@@ -587,14 +587,8 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
     }
 
     void disposeReps() {
-        if (_value != null) {
-            _value.removeActionListener(this);
-        }
         for (int i = 0; i < comboCBs.size(); i++) {
             comboCBs.get(i).dispose();
-        }
-        for (int i = 0; i < comboVars.size(); i++) {
-            comboVars.get(i).dispose();
         }
         for (int i = 0; i < comboRBs.size(); i++) {
             comboRBs.get(i).dispose();

@@ -1,15 +1,14 @@
 package jmri.jmrit.symbolicprog;
 
+import java.awt.Color;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.FocusEvent;
-import java.awt.event.FocusListener;
 import java.util.ResourceBundle;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
-import jmri.jmrit.symbolicprog.comp.JmriTextField;
+import jmri.jmrit.symbolicprog.swing.JmriComponents;
+import jmri.jmrit.symbolicprog.swing.JmriComponents.UIDelegate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,9 +32,9 @@ import org.slf4j.LoggerFactory;
  *
  * @author Bob Jacobsen Copyright (C) 2001, 2012
  */
-public class DccAddressPanel extends JPanel {
+public class DccAddressPanel extends JPanel implements UIDelegate {
 
-    JTextField val = new JmriTextField(6);
+    JTextField val = JmriComponents.getDefault().textField(null, "", 6, this);
 
     VariableValue primaryAddr = null;
     VariableValue extendAddr = null;
@@ -127,52 +126,6 @@ public class DccAddressPanel extends JPanel {
                 val.setDocument(f.getDocument());
             }
         };
-
-        // start listening for changes to this value
-        val.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                new DccAddressVarHandler(primaryAddr, extendAddr, addMode) {
-                    @Override
-                    protected void doPrimary() {
-                        // short address mode
-                        primaryAddr.updatedTextField();
-                        val.setBackground(primaryAddr.getCommonRep().getBackground());
-                        if (log.isDebugEnabled()) {
-                            log.debug("set color: " + primaryAddr.getCommonRep().getBackground());
-                        }
-                    }
-
-                    @Override
-                    protected void doExtended() {
-                        // long address
-                        extendAddr.updatedTextField();
-                        val.setBackground(extendAddr.getCommonRep().getBackground());
-                        if (log.isDebugEnabled()) {
-                            log.debug("set color: " + extendAddr.getCommonRep().getBackground());
-                        }
-                    }
-                };
-            }
-        });
-        val.addFocusListener(new FocusListener() {
-            @Override
-            public void focusGained(FocusEvent e) {
-                if (log.isDebugEnabled()) {
-                    log.debug("focusGained");
-                }
-                enterField();
-            }
-
-            @Override
-            public void focusLost(FocusEvent e) {
-                if (log.isDebugEnabled()) {
-                    log.debug("focusLost");
-                }
-                exitField();
-            }
-        });
-
     }
 
     String oldContents = "";
@@ -180,7 +133,7 @@ public class DccAddressPanel extends JPanel {
     /**
      * Handle focus entering the address field by recording the contents.
      */
-    void enterField() {
+    public void enterField() {
         oldContents = val.getText();
     }
 
@@ -189,7 +142,7 @@ public class DccAddressPanel extends JPanel {
      * changed. We do this because we want to record that change even if it
      * hasn't been "entered" via return key et al.
      */
-    void exitField() {
+    public void exitField() {
         if (!oldContents.equals(val.getText())) {
             new DccAddressVarHandler(primaryAddr, extendAddr, addMode) {
                 @Override
@@ -213,6 +166,17 @@ public class DccAddressPanel extends JPanel {
                 }
             };
         }
+    }
+    
+    public Color getStateColor() {
+        if (extendAddr == null || (addMode != null && !addMode.getValueString().equals("1"))) {
+            if (primaryAddr != null) {
+                return primaryAddr.getStateColor();
+            }
+        } else {
+            return extendAddr.getStateColor();
+        }
+        return VariableValue.COLOR_UNKNOWN;
     }
 
     /**
@@ -266,5 +230,30 @@ public class DccAddressPanel extends JPanel {
 
     // initialize logging
     private final static Logger log = LoggerFactory.getLogger(DccAddressPanel.class);
+
+    @Override
+    public void actionPerformed(ActionEvent a) {
+        new DccAddressVarHandler(primaryAddr, extendAddr, addMode) {
+            @Override
+            protected void doPrimary() {
+                // short address mode
+                primaryAddr.updatedTextField();
+                val.setBackground(primaryAddr.getCommonRep().getBackground());
+                if (log.isDebugEnabled()) {
+                    log.debug("set color: " + primaryAddr.getCommonRep().getBackground());
+                }
+            }
+
+            @Override
+            protected void doExtended() {
+                // long address
+                extendAddr.updatedTextField();
+                val.setBackground(extendAddr.getCommonRep().getBackground());
+                if (log.isDebugEnabled()) {
+                    log.debug("set color: " + extendAddr.getCommonRep().getBackground());
+                }
+            }
+        };
+    }
 
 }

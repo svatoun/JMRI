@@ -3,15 +3,11 @@ package jmri.jmrit.symbolicprog;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.FocusEvent;
-import java.awt.event.FocusListener;
 import java.util.HashMap;
 import javax.annotation.Nonnull;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
-import jmri.jmrit.symbolicprog.comp.JmriTextField;
-import jmri.jmrit.symbolicprog.comp.JmriComponents;
+import jmri.jmrit.symbolicprog.swing.JmriComponents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +18,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class LongAddrVariableValue extends VariableValue
-        implements ActionListener, FocusListener, JmriComponents.UIDelegate {
+        implements JmriComponents.UIDelegate {
 
     public LongAddrVariableValue(@Nonnull String name, @Nonnull String comment, @Nonnull String cvName,
             boolean readOnly, boolean infoOnly, boolean writeOnly, boolean opsOnly,
@@ -32,13 +28,11 @@ public class LongAddrVariableValue extends VariableValue
         super(name, comment, cvName, readOnly, infoOnly, writeOnly, opsOnly, cvNum, mask, v, status, stdname);
         _maxVal = maxVal;
         _minVal = minVal;
-        _value = new JmriTextField("0", 5);
+        _value = JmriComponents.getDefault().textField(null, "0", 5, this);
         _value.setOpaque(true);
         _defaultColor = _value.getBackground();
         _value.setBackground(COLOR_UNKNOWN);
         // connect to the JTextField value, cv
-        _value.addActionListener(this);
-        _value.addFocusListener(this);
         // connect for notification
         CvValue cv = (_cvMap.get(getCvNum()));
         cv.addPropertyChangeListener(this);
@@ -138,25 +132,6 @@ public class LongAddrVariableValue extends VariableValue
         prop.firePropertyChange("Value", null, Integer.valueOf(newVal));
     }
 
-    /**
-     * FocusListener implementations
-     */
-    @Override
-    public void focusGained(FocusEvent e) {
-        if (log.isDebugEnabled()) {
-            log.debug("focusGained");
-        }
-        enterField();
-    }
-
-    @Override
-    public void focusLost(FocusEvent e) {
-        if (log.isDebugEnabled()) {
-            log.debug("focusLost");
-        }
-        exitField();
-    }
-
     // to complete this class, fill in the routines to handle "Value" parameter
     // and to read/write/hear parameter changes.
     @Override
@@ -209,21 +184,21 @@ public class LongAddrVariableValue extends VariableValue
 
     Color _defaultColor;
 
+    Color getDefaultColor() {
+        return _defaultColor;
+    }
+    
     // implement an abstract member to set colors
     @Override
     void setColor(Color c) {
-        if (c != null) {
-            _value.setBackground(c);
-        } else {
-            _value.setBackground(_defaultColor);
-        }
+        _value.setBackground(c);
         // prop.firePropertyChange("Value", null, null);
     }
 
     @Override
     public Component getNewRep(String format) {
         return updateRepresentation(
-                JmriComponents.getDefault().createVarTextField(_value.getDocument(), _value.getText(), 5, this));
+                JmriComponents.getDefault().textField(_value.getDocument(), _value.getText(), 5, this));
     }
     private int _progState = 0;
     private static final int IDLE = 0;
@@ -416,19 +391,11 @@ public class LongAddrVariableValue extends VariableValue
     // stored value
     JTextField _value = null;
     
-    @Override
-    public Color getBackground() {
-        return _value.getBackground();
-    }
-
     // clean up connections when done
     @Override
     public void dispose() {
         if (log.isDebugEnabled()) {
             log.debug("dispose");
-        }
-        if (_value != null) {
-            _value.removeActionListener(this);
         }
         (_cvMap.get(getCvNum())).removePropertyChangeListener(this);
         highCV.removePropertyChangeListener(this);
