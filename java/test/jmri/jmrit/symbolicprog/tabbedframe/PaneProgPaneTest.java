@@ -30,6 +30,38 @@ import org.slf4j.LoggerFactory;
 public class PaneProgPaneTest {
 
     ProgDebugger p = new ProgDebugger();
+    
+    int varCount;
+    int colCount;
+    
+    class CountingBuilder extends ControlXMLReader {
+        boolean trimColumn;
+        
+        public CountingBuilder(Element root, CvTableModel cvModel, VariableTableModel tableModel, RosterEntry re, Element modelElem) {
+            super(root, cvModel, tableModel, re, modelElem);
+        }
+
+        @Override
+        protected Processor defaultProcessor() {
+            return new Processor() {
+                @Override
+                protected JComponent makeVariable(Element var) {
+                    varCount++;
+                    return super.makeVariable(var); 
+                }
+
+                @Override
+                protected JComponent makeColumn(Element e) {
+                    colCount++;
+                    if (trimColumn) {
+                        return new JPanel();
+                    } else {
+                        return super.makeColumn(e);
+                    }
+                }
+            };
+        }
+    }
 
     // test creating columns in a pane
     @Test
@@ -55,9 +87,10 @@ public class PaneProgPaneTest {
         colCount = 0;
         PaneProgPane pane = new PaneProgPane(pFrame, "name", pane1, cvModel, varModel, null, null) {
             @Override
-            public JPanel newColumn(Element e, boolean a, Element el) {
-                colCount++;
-                return new JPanel();
+            protected ControlXMLReader createControlBuilder(Element pane, Element modelElem) {
+                CountingBuilder cb = new CountingBuilder(pane, _cvModel, _varModel, rosterEntry, modelElem);
+                cb.trimColumn = true;
+                return cb;
             }
         };
         assertNotNull("exists", pane);
@@ -88,8 +121,8 @@ public class PaneProgPaneTest {
         varCount = 0;
         PaneProgPane pane = new PaneProgPane(pFrame, "name", pane1, cvModel, varModel, null, null) {
             @Override
-            public void newVariable(Element e, JComponent p, GridBagLayout g, GridBagConstraints c, boolean a) {
-                varCount++;
+            protected ControlXMLReader createControlBuilder(Element pane, Element modelElem) {
+                return new CountingBuilder(pane, _cvModel, _varModel, rosterEntry, modelElem);
             }
         };
         assertNotNull("exists", pane);
@@ -350,8 +383,6 @@ public class PaneProgPaneTest {
 
     // static variables for internal classes to report their interpretations
     static String result = null;
-    static int colCount = -1;
-    static int varCount = -1;
 
     // static variables for the test XML structures
     Element root = null;
