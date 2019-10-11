@@ -235,6 +235,16 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     }
     
     protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
+        if (cs.gridx == 0 & cs.gridy == 0) {
+            int a = cs.anchor;
+            
+            switch (cs.anchor) {
+                case GridBagConstraints.CENTER:
+                case GridBagConstraints.WEST:  a = GridBagConstraints.NORTHWEST; break;
+                case GridBagConstraints.EAST:  a = GridBagConstraints.NORTHEAST; break;
+            }
+            cs.anchor = a;
+        }
         return cs;
     }
     
@@ -359,46 +369,61 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     public static class RootBuilder extends GridBagLayoutBuilder {
         public RootBuilder(JPanel panel) {
             super(panel, 1);
+            panel.setLayout(new GridBagLayout());
         }
 
         @Override
         public JPanel build() {
             LOG.debug("RootBuilder finished");
+            nextItem();
+            GridBagConstraints spacerX = cs;
+            cs.gridy = 0;
+            cs.gridheight = GridBagConstraints.REMAINDER;
+            cs.fill = GridBagConstraints.BOTH;
+            cs.weightx = 1.0;
+            panel.add(new JPanel(), cs);
+            
+            nextItem();
+            cs.gridy = Math.max(0, cs.gridy) + 1;
+            cs.gridx = 0;
+            cs.gridwidth = GridBagConstraints.REMAINDER;
+            cs.gridheight = GridBagConstraints.REMAINDER;
+            cs.fill = GridBagConstraints.BOTH;
+            cs.weighty = 1.0;
+            panel.add(new JPanel(), cs);
             return panel;
         }
 
         @Override
-        public void nextItem() {
-            // no op
-        }
-
-        @Override
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
+            cs.anchor = GridBagConstraints.NORTHWEST;
+            cs.gridx++;
+            cs.fill = GridBagConstraints.VERTICAL;
             return cs;
         }
 
         @Override
         public void addHorizontalSeparator(JSeparator sep) {
             LOG.debug("Adding separator {} to root", sep);
-            panel.add(sep);
+            panel.add(sep, cs);
         }
 
         @Override
         public void addCellComponent(JComponent component) {
             LOG.debug("Adding cell {} to root", component);
-            panel.add(component);
+            panel.add(component, cs);
         }
 
         @Override
         public void addFullSlotComponent(JComponent c) {
             LOG.debug("Adding row {} to root", c);
-            panel.add(c);
+            panel.add(c, cs);
         }
 
         @Override
         public void addVerticalComponent(JComponent c, float weight) {
             LOG.debug("Adding vertical {} to root", c);
-            panel.add(c);
+            panel.add(c, cs);
         }
 
         @Override
