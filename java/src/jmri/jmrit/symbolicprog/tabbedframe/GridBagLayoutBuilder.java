@@ -2,11 +2,13 @@ package jmri.jmrit.symbolicprog.tabbedframe;
 
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.Insets;
 import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSeparator;
+import javax.swing.border.EmptyBorder;
 import org.jdom2.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,6 +111,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     
     @Override
     public void addLabelControl(JLabel l, JComponent rep, RelativePos labelPos) {
+        cs.insets = createNextFlowInsets();
         switch (labelPos) {
             case LEFT:
                 cs.anchor = GridBagConstraints.EAST;
@@ -183,6 +186,10 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         JPanel p = new JPanel();
         p.setLayout(new GridBagLayout());
         return p;
+    }
+    
+    protected Insets createNextFlowInsets() {
+        return new Insets(0, 0, 12, 12);
     }
 
     @Override
@@ -370,6 +377,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         public RootBuilder(JPanel panel) {
             super(panel, 1);
             panel.setLayout(new GridBagLayout());
+            panel.setBorder(new EmptyBorder(12, 12, 12, 12));
         }
 
         @Override
