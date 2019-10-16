@@ -303,8 +303,6 @@
       <tooltip xml:lang="fr">Sélectionner pour activer la fonction F8 (marche arrière) lorsque la loco fonctionne en analogique</tooltip>
       <tooltip xml:lang="it">Imposta stato funzione F8 (indietro) quando si opera in analogico</tooltip>
     </display>
-  </column>
-  <column>
     <display item="Analog Mode Function Status - F9" format="checkbox" tooltip="Check to enable function F9 when the unit is operating in analog power mode">
       <tooltip xml:lang="ca">Estableix si funcionarà F9 quan es condueixi en analògic</tooltip>
       <tooltip xml:lang="de">Setzt den Status der Funktion F9 wenn die Lok im Analogbetrieb ist</tooltip>
@@ -431,6 +429,8 @@
       <tooltip xml:lang="fr">Sélectionner pour activer la fonction F15 (marche arrière) lorsque la loco fonctionne en analogique</tooltip>
       <tooltip xml:lang="it">Imposta stato funzione F15 (indietro) quando si opera in analogico</tooltip>
     </display>
+  </column>
+  <column>
     <display item="Analog Mode Function Status - F16" format="checkbox" tooltip="Check to enable function F16 when the unit is operating in analog power mode">
       <tooltip xml:lang="ca">Estableix si funcionarà F16 quan es condueixi en analògic</tooltip>
       <tooltip xml:lang="de">Setzt den Status der Funktion F16 wenn die Lok im Analogbetrieb ist</tooltip>
@@ -485,8 +485,6 @@
       <tooltip xml:lang="fr">Sélectionner pour activer la fonction F18 (marche arrière) lorsque la loco fonctionne en analogique</tooltip>
       <tooltip xml:lang="it">Imposta stato funzione F18 (indietro) quando si opera in analogico</tooltip>
     </display>
-  </column>
-  <column>
     <display item="Analog Mode Function Status - F19" format="checkbox" tooltip="Check to enable function F19 when the unit is operating in analog power mode">
       <tooltip xml:lang="ca">Estableix si funcionarà F19 quan es condueixi en analògic</tooltip>
       <tooltip xml:lang="de">Setzt den Status der Funktion F19 wenn die Lok im Analogbetrieb ist</tooltip>
