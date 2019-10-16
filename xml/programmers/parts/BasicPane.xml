@@ -65,12 +65,14 @@
     </display>
   </column>
   <column>
+    <!--
     <label>
       <text> </text>
     </label>
     <label>
       <text> </text>
     </label>
+    -->
 	<display item="User Id #3" tooltip="Sets an extra user ID or number (if used)">
       <tooltip xml:lang="ca">adicional númeromero usuari</tooltip>
       <tooltip xml:lang="cs">Nastaví hodnoty přizpůsobení pro uživatele ID nebo číslo</tooltip>
