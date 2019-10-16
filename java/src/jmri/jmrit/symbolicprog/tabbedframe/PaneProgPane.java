@@ -237,6 +237,7 @@ public class PaneProgPane extends javax.swing.JPanel
             showItem = true;
         }
         ControlXMLReader builder = createControlBuilder(pane, modelElem);
+        builder.setShowStdName(showItem);
         
         // put the columns left to right in a panel
         JPanel rootPane = new JPanel();

@@ -805,8 +805,8 @@ public class ControlXMLReader {
             return c;
         }
 
-        private Integer gridXLast;
-        private Integer gridYLast;
+        private String gridXLast;
+        private String gridYLast;
 
         /**
          * Create a grid item from the JDOM Element
@@ -819,31 +819,34 @@ public class ControlXMLReader {
             List<Attribute> attList = new ArrayList<>(gridAttList);
             attList.addAll(itemAttList); // merge grid and item-level attributes
             // gridx and gridy are buffered, and the last seen value will be used afterwards.
+            
             gridXLast = gridYLast = null;
-
+            
             for (int j = 0; j < attList.size(); j++) {
                 Attribute attrib = attList.get(j);
                 String attribName = attrib.getName();
                 String attribRawValue = attrib.getValue();
-
-                try {
-                    processGridAttr(attribName, attribRawValue);
-                } catch (NoSuchFieldException ex) {
-                    LOG.error("Unrecognized attribute \"" + attribName + "\", skipping");
-                } catch (SecurityException ex) {
-                    LOG.error("Inaccessible attribute \"" + attribName + "\", skipping");
-                } catch (ReflectiveOperationException ex) {
-                    LOG.error("Unable to set constraint \"" + attribName, ex);
-                } catch (NumberFormatException ex) {
-                    LOG.error("Invalid value \"" + attribRawValue + "\" for attribute \"" + attribName + "\"");
+                processWithExceptions(attribName, attribRawValue, false);
+            }
+            processWithExceptions("gridx", gridXLast, true);
+            processWithExceptions("gridy", gridYLast, true);
+        }
+        
+        private void processWithExceptions(String attribName, String attribRawValue, boolean d) {
+            try {
+                if (d) {
+                    processGridAttr0(attribName, attribRawValue);
+                } else {
+                    processGridAttr(attribName, attribRawValue);   
                 }
-            }
-
-            if (gridXLast != null) {
-                gridConstraints.gridx = gridXLast;
-            }
-            if (gridYLast != null) {
-                gridConstraints.gridy = gridYLast;
+            } catch (NoSuchFieldException ex) {
+                LOG.error("Unrecognized attribute \"" + attribName + "\", skipping");
+            } catch (SecurityException ex) {
+                LOG.error("Inaccessible attribute \"" + attribName + "\", skipping");
+            } catch (ReflectiveOperationException ex) {
+                LOG.error("Unable to set constraint \"" + attribName, ex);
+            } catch (NumberFormatException ex) {
+                LOG.error("Invalid value \"" + attribRawValue + "\" for attribute \"" + attribName + "\"");
             }
         }
 
@@ -855,9 +858,29 @@ public class ControlXMLReader {
          * @throws ReflectiveOperationException
          */
         private void processGridAttr(String attribName, String attribRawValue) throws ReflectiveOperationException {
+            switch (attribName) {
+                case "gridx":
+                    gridXLast = attribRawValue;
+                    break;
+                case "gridy":
+                    gridYLast = attribRawValue;
+                    break;
+                default:
+                    processGridAttr0(attribName, attribRawValue);
+            }
+        }
+        
+        private void processGridAttr0(String attribName, String attribRawValue) throws ReflectiveOperationException {
+            if (attribRawValue == null) {
+                return;
+            }
+            Object value = null;
+            
+            Field f = GridBagConstraints.class.getField(attribName);
+            f.setAccessible(true);
             switch (attribName.toLowerCase()) {
                 case "gridx":
-                    gridXLast = getSpecialValue(attribRawValue, new GridSpecialValues() {
+                    value = getSpecialValue(attribRawValue, new GridSpecialValues() {
                         @Override
                         public int current() {
                             return gridxCurrent;
@@ -868,9 +891,12 @@ public class ControlXMLReader {
                             return ++gridxCurrent;
                         }
                     });
-                    return;
+                    if (value instanceof Integer) {
+                        gridxCurrent = (Integer)value;
+                    }
+                    break;
                 case "gridy":
-                    gridYLast = getSpecialValue(attribRawValue, new GridSpecialValues() {
+                    value = getSpecialValue(attribRawValue, new GridSpecialValues() {
                         @Override
                         public int current() {
                             return gridyCurrent;
@@ -881,13 +907,17 @@ public class ControlXMLReader {
                             return ++gridyCurrent;
                         }
                     });
-                    return;
+                    if (value instanceof Integer) {
+                        gridyCurrent = (Integer)value;
+                    }
+                    break;
+                default:
+                    value = parseValue(f.getType(), attribName, attribRawValue);
+                    break;
             }
-            Field f = GridBagConstraints.class.getField(attribName);
-            f.setAccessible(true);
-
-            Object value = parseValue(f.getType(), attribName, attribRawValue);
-            f.set(gridConstraints, value);
+            if (value != null) {
+                f.set(gridConstraints, value);
+            }
         }
 
         private Object parseValue(Class pt, String attribName, String attribRawValue) {
