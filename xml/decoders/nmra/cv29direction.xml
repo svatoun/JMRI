@@ -65,7 +65,7 @@
   </revhistory>
   <variable item="Locomotive Direction" CV="29" mask="XXXXXXXV" tooltip="Sets the relative direction of the loco when told to move forward">
     <xi:include href="http://jmri.org/xml/decoders/parts/enum-NormRev.xml"/>
-    <label>Locomotive Direction</label>
+    <label>Locomotive _Direction</label>
     <label xml:lang="cs">Směr lokomotivy</label>
     <label xml:lang="de">Fahrtrichtung Standard</label>
     <label xml:lang="fr">Sens normal de marche</label>

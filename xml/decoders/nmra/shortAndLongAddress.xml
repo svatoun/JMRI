@@ -42,7 +42,7 @@
   </revhistory>
   <variable CV="1" comment="Short address" item="Short Address" default="03">
     <shortAddressVal/>
-    <label>Primary Address</label>
+    <label>Primary _Address</label>
     <label xml:lang="it">Indirizzo Primario</label>
     <label xml:lang="cs">Základní adresa</label>
     <label xml:lang="fr">Adresse décodeur</label>
@@ -57,7 +57,7 @@
   </variable>
   <variable CV="17" item="Long Address">
     <longAddressVal/>
-    <label>Extended Address</label>
+    <label>_Extended Address</label>
     <label xml:lang="it">Indirizzo Esteso</label>
     <label xml:lang="fr">Adresse longue</label>
     <label xml:lang="de">Erweiterte Adresse</label>
@@ -84,7 +84,7 @@
 		<choice xml:lang="da">Lang (2 byte) adresse</choice>
       </enumChoice>
     </enumVal>
-    <label>Address Format</label>
+    <label>Address _Format</label>
     <label xml:lang="it">Formato Indirizzo</label>
     <label xml:lang="fr">Format d'Adresse</label>
     <label xml:lang="de">Adresse Format</label>
