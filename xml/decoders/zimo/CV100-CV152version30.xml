@@ -1448,31 +1448,31 @@
         <choice xml:lang="cs">Normální (DC a Coreless)</choice>
       </enumChoice>
       <enumChoice choice="Low Impedance DC (with added capacitor see manual)" value="1">
-        <choice>Low Impedance DC (with added capacitor see manual)</choice>
+        <choice>Low Impedance DC</choice>
         <choice xml:lang="it">Bassa impedenza DC(con condensatoe: vedere manuale)</choice>
         <choice xml:lang="cs">Nízká impedance DC (přidaný kondenzátor, viz.manuál)</choice>
         <choice xml:lang="de">Spezialeinstellung Fleischmann-Rundmotor</choice>
       </enumChoice>
       <enumChoice choice="C or Softdrive-Sinus (FO4 not useable)" value="10">
-        <choice>C or Softdrive-Sinus (FO4 not useable)</choice>
+        <choice>C or Softdrive-Sinus (no FO4)</choice>
         <choice xml:lang="it">C o Softdrive-Sinusoidale (F4 non usabile)</choice>
         <choice xml:lang="cs">C nebo Softdrive-Sinusoida (funkční výstup 4 není použitelný)</choice>
         <choice xml:lang="de">C oder Softdrive-Sinus (FA4 nicht verwendbar)</choice>
       </enumChoice>
       <enumChoice choice="alternative C or Softdrive-Sinus (FO4 useable)" value="11">
-        <choice>alternative C or Softdrive-Sinus (FO4 useable)</choice>
+        <choice>C or Softdrive-Sinus (with FO4)</choice>
         <choice xml:lang="it">C alternativo o Softdrive-Sinusoidale (F4 usabile)</choice>
         <choice xml:lang="cs">Alternativní C nebo Softdrive-Sinusoida (funkční výstup 4 je použitelný)</choice>
         <choice xml:lang="de">alternativ C oder Softdrive-Sinus (FA4 verwendbar)</choice>
       </enumChoice>
       <enumChoice choice="Special C or Softdrive-Sinus requiring normal output (FO4 not useable)" value="12">
-        <choice>Special C or Softdrive-Sinus requiring normal output (FO4 not useable)</choice>
+        <choice>Special C or Softdrive-Sinus (no FO4)</choice>
         <choice xml:lang="it">C Speciale o Softdrive-Sinusoidale con uscita normale (F4 non usabile)</choice>
         <choice xml:lang="cs">Speciální C nebo Softdrive-Sinusoida požadující normální výstup (funkční výstup 4 není použitelný)</choice>
         <choice xml:lang="de">Spezial C oder Softdrive-Sinus benötigt FA (FA4 nicht verwendbar)</choice>
       </enumChoice>
       <enumChoice choice="Special C or Softdrive-Sinus for Marklin Gottardo (FO3 is directional selection of 3rd rail pickup)" value="13">
-        <choice>Special C or Softdrive-Sinus for Marklin Gottardo (FO3 is directional selection of 3rd rail pickup)</choice>
+        <choice>Special C or Softdrive-Sinus for Marklin Gottardo</choice>
         <choice xml:lang="it">C Speciale o Softdrive-Sinusoidale per Marklin Gottardo (F3 selezione direzionale della terza rotaia)</choice>
         <choice xml:lang="cs">Speciální C nebo Softdrive-Sinusoida pro Märklin Gottardo (funkční výstup 3 je směrová volba podle třetí kolejnice)</choice>
         <choice xml:lang="de">Spezial C oder Softdrive-Sinus für Märklin Gotthard (F3 ist Richtungsauswahl)</choice>

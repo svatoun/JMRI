@@ -3,15 +3,15 @@
 <!-- Copyright (C) JMRI 2001, 2005, 2007, 2-009, 2010 All rights reserved -->
 <enumChoiceGroup xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://jmri.org/xml/schema/decoder.xsd">
       <enumChoice choice="Automatic Stop Lights for Streetcars">
-        <choice>Automatic Stop Lights for Streetcars</choice>
+        <choice>Stop Lights for Streetcars</choice>
         <choice xml:lang="it">Luci Stop automatico per Tram</choice>
-        <choice xml:lang="cs">Automatická brzdová světla pro tramvaje</choice>
+        <choice xml:lang="cs">Brzdová světla pro tramvaje</choice>
         <choice xml:lang="de">Autom. Bremslicht für Straßenbahnen</choice>
       </enumChoice>
-      <enumChoice choice="Turns off when speed is greater than 0">
-        <choice>Turns off when speed is greater than 0</choice>
+      <enumChoice choice="Turns off when movingspeed is greater than 0">
+        <choice>Turns off when moving</choice>
         <choice xml:lang="it">Spegnimento per velocità &gt; 0</choice>
-        <choice xml:lang="cs">Vypnout když je rychlost vyšší než 0</choice>
+        <choice xml:lang="cs">Vypnout při pohybu</choice>
         <choice xml:lang="de">Automatisches Abschalten bei Fahrstufe &gt; 0</choice>
       </enumChoice>
       <enumChoice choice="Turns off after 5 Min.">
