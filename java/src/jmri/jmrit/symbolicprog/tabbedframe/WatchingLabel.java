@@ -37,6 +37,7 @@ public class WatchingLabel extends javax.swing.JLabel {
 
         // set initial status
         self.setVisible(c.isVisible());
+        setLabelFor(c);
     }
 
     javax.swing.JComponent comp;

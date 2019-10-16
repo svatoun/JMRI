@@ -6,12 +6,26 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Hashtable;
+import java.util.logging.Level;
+import javax.swing.JComponent;
+import javax.swing.JFormattedTextField;
 import javax.swing.JLabel;
 import javax.swing.JSlider;
+import javax.swing.JSpinner;
 import javax.swing.JTextField;
+import javax.swing.SpinnerModel;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -262,13 +276,162 @@ public class DecVariableValue extends VariableValue
             }
             return b;
         } else {
-            JTextField value = new VarTextField(_value.getDocument(), _value.getText(), fieldLength(), this);
-            if (getReadOnly() || getInfoOnly()) {
-                value.setEditable(false);
+            JComponent val;
+            
+            boolean nonEditable = getReadOnly() || getInfoOnly();
+            if (!nonEditable && _minVal > Integer.MIN_VALUE && _maxVal < Integer.MAX_VALUE) {
+                String initText = _value.getText();
+                Number initV;
+                try {
+                    initV = Integer.parseInt(initText);
+                } catch (NumberFormatException ex) {
+                    initV = Integer.valueOf("0");
+                }
+                val = createSpinner(initV);
+            } else {
+                JTextField value = new VarTextField(_value.getDocument(), _value.getText(), fieldLength(), this);
+                if (nonEditable) {
+                    value.setEditable(false);
+                }
+                val = value;
             }
-            reps.add(value);
-            updateRepresentation(value);
-            return value;
+            reps.add(val);
+            updateRepresentation(val);
+            return val;
+        }
+    }
+    
+    private JComponent createSpinner(Number initV) {
+        SpinnerModel model = new SpinnerNumberModel(initV, _minVal, _maxVal, 1);
+        JSpinner spinner = new JSpinner(model);
+        JSpinner.NumberEditor ne = new JSpinner.NumberEditor(spinner, "#");
+        ne.getTextField().setHorizontalAlignment(JTextField.LEFT);
+        spinner.setEditor(ne);
+//        ne.getTextField().setDocument(_value.getDocument());
+        ne.getTextField().setFocusLostBehavior(JFormattedTextField.COMMIT);
+        
+        // Spinner does not update on reaction to document, but to focus lost;
+        // to have the behaviour the same for all fields, let's commit its value
+        // each time the document is updated
+        SpinnerDocumentUpdater updater = new SpinnerDocumentUpdater(ne, _value.getDocument());
+        _value.getDocument().addDocumentListener(updater);
+        ne.getTextField().getDocument().addDocumentListener(updater);
+        ne.getTextField().addPropertyChangeListener(updater);
+        this.addPropertyChangeListener(new StatusColorizer(spinner, ne, this));
+        spinner.setBackground(_value.getBackground());
+        ne.getTextField().setBackground(_value.getBackground());
+        return spinner;
+    }
+    
+    private static class StatusColorizer implements PropertyChangeListener {
+        private final JComponent    target;
+        private final VariableValue variable;
+        private final JSpinner.DefaultEditor editor;
+
+        public StatusColorizer(JComponent target, JSpinner.DefaultEditor editor, VariableValue variable) {
+            this.target = target;
+            this.editor = editor;
+            this.variable = variable;
+        }
+
+        @Override
+        public void propertyChange(PropertyChangeEvent evt) {
+            if (variable != evt.getSource() || evt.getPropertyName() == null) {
+                return;
+            }
+            switch (evt.getPropertyName()) {
+                case "Value":
+                    if (editor.isFocusOwner()) {
+                        return;
+                    }
+                    try {
+                        editor.commitEdit();
+                    } catch (ParseException ex) {
+                        // ignore;
+                    }
+                    break;
+                    
+                case "State":
+                    // because of bug in VariableValue refused to be fixed, need to evaluate after the current event
+                    // terminates:
+                    SwingUtilities.invokeLater(() -> {
+                        Color c = VariableValue.stateColorFromValue(variable.getState());
+                        target.setBackground(c);
+                        editor.getTextField().setBackground(c);
+                    });
+                    break;
+            }
+        }
+    }
+    
+    private static class SpinnerDocumentUpdater implements DocumentListener, PropertyChangeListener {
+        private final JSpinner.DefaultEditor editor;
+        private final Document otherDocument;
+        
+        private boolean inProgress;
+        
+        public SpinnerDocumentUpdater(JSpinner.DefaultEditor editor, Document other) {
+            this.editor = editor;
+            this.otherDocument = other;
+        }
+
+        @Override
+        public void propertyChange(PropertyChangeEvent evt) {
+            if (inProgress) {
+                return;
+            }
+            inProgress = true;
+            try {
+                if (evt.getSource() == editor.getTextField()) {
+                    if ("value".equals(evt.getPropertyName())) {
+                        String s = editor.getTextField().getText();
+                        AbstractDocument dd = (AbstractDocument)otherDocument;
+                        try {
+                            dd.replace(0, dd.getLength(), s, null);
+                        } catch (BadLocationException ex) {
+                            // should not happen.
+                        }
+                    }
+                }
+            } finally {
+                inProgress = false;
+            }
+        }
+        
+        @Override
+        public void insertUpdate(DocumentEvent e) {
+            if (inProgress) {
+                return;
+            }
+            inProgress = true;
+            try {
+                if (e.getDocument() == editor.getTextField().getDocument()) {
+
+                } else {
+                    try {
+                        try {
+                            editor.getTextField().setText(e.getDocument().getText(0, e.getDocument().getLength()));
+                        } catch (BadLocationException ex) {
+                            // should not happen.
+                        }
+                        editor.commitEdit();
+                    } catch (ParseException ex) {
+                        // just ignore, should not be thrown
+                    }
+                }
+            } finally {
+                inProgress = false;
+            }
+        }
+
+        @Override
+        public void removeUpdate(DocumentEvent e) {
+            insertUpdate(e);
+        }
+
+        @Override
+        public void changedUpdate(DocumentEvent e) {
+            // no op.
         }
     }
 

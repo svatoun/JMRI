@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
+import javafx.scene.input.Mnemonic;
 import javax.swing.*;
 import javax.swing.table.*;
 import jmri.jmrit.roster.RosterEntry;
@@ -18,6 +19,7 @@ import jmri.jmrit.symbolicprog.tabbedframe.GridBagLayoutBuilder.Grid;
 import jmri.util.CvUtil;
 import jmri.util.StringUtil;
 import jmri.util.jdom.LocaleSelector;
+import jmri.util.swing.Mnemonics;
 import org.jdom2.Attribute;
 import org.jdom2.Element;
 import org.slf4j.Logger;
@@ -344,6 +346,8 @@ public class ControlXMLReader {
                 }
             }
         }
+        
+        private boolean lastItemNotEmpty = true;
 
         private boolean lastItemNotEmpty = true;
 
@@ -604,7 +608,7 @@ public class ControlXMLReader {
             if (l.getComponentCount() == 0) {
                 return null;
             }
-            layoutBuilder.addFullSlotComponent(l);
+            layoutBuilder.addCellComponent(l);
             return l;
         }
 
@@ -826,11 +830,27 @@ public class ControlXMLReader {
             // get representation; store into the list to be programmed
             JComponent rep = getRepresentation(name, var);
             varList.add(i);
-
+            
+            // Consistency fix: if the text does not end with ':'
+            // and the layout precedes (is above or left to) the control, add a colon
+            LayoutBuilder.RelativePos relPos = LayoutBuilder.RelativePos.fromString(readAttribute(ATTR_LAYOUT, DEFATTR_LAYOUT));
+            
+            // PEDNING: I18n; the doublecolon should not be probably hardcoded.
+            if (!label.endsWith(":") && !label.trim().isEmpty()) {
+                switch (relPos) {
+                    case LEFT: case ABOVE:
+                        label = label.trim() + ":";
+                        break;
+                }
+            }
+            label = label.replace('_', '&'); 
             // create the paired label
             JLabel l = new WatchingLabel(label, rep);
-            layoutBuilder.addLabelControl(l, rep, 
-                    LayoutBuilder.RelativePos.fromString(readAttribute(ATTR_LAYOUT, DEFATTR_LAYOUT)));
+            
+            // PENIDNG: perhaps collect labels from the entire dialog scope, and then select 
+            // some unique ones provided there are more alternatives in the text.
+            Mnemonics.setLocalizedText(l, label);
+            layoutBuilder.addLabelControl(l, rep, relPos);
 
             return rep;
         }

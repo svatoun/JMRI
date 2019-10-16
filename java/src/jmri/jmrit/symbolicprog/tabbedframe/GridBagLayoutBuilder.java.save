@@ -2,13 +2,11 @@ package jmri.jmrit.symbolicprog.tabbedframe;
 
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.Insets;
 import javax.swing.Box;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSeparator;
-import javax.swing.border.EmptyBorder;
 import org.jdom2.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,44 +109,52 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     
     @Override
     public void addLabelControl(JLabel l, JComponent rep, RelativePos labelPos) {
-        cs.insets = createNextFlowInsets();
         switch (labelPos) {
             case LEFT:
-                cs.anchor = GridBagConstraints.BASELINE_LEADING;
-                cs.fill = GridBagConstraints.HORIZONTAL;
+                cs.anchor = GridBagConstraints.WEST;
+                cs.ipadx = spaceWidth(l);
                 panel.add(l, cs);
+                cs.ipadx = 0;
                 cs.gridx++;
-                cs.anchor = GridBagConstraints.BASELINE_TRAILING;
+                cs.anchor = GridBagConstraints.WEST;
+                cs.fill = GridBagConstraints.HORIZONTAL;
                 panel.add(rep, cs);
                 break;
-//        log.info("Exit item="+name+";cs.gridx="+cs.gridx+";cs.gridy="+cs.gridy+";cs.anchor="+cs.anchor+";cs.ipadx="+cs.ipadx);
             case RIGHT:
                 cs.anchor = GridBagConstraints.EAST;
+                GridBagConstraints tmp = (GridBagConstraints) cs.clone();
+                tmp.fill = GridBagConstraints.HORIZONTAL;
                 panel.add(rep, cs);
                 cs.gridx++;
                 cs.anchor = GridBagConstraints.WEST;
                 cs.ipadx = spaceWidth(l);
                 panel.add(l, cs);
+                cs.ipadx = 0;
                 break;
             case BELOW:
                 // variable in center of upper line
-                cs.anchor = GridBagConstraints.CENTER;
-                panel.add(rep, cs);
+                cs.anchor = GridBagConstraints.WEST;
+                GridBagConstraints tmp2 = (GridBagConstraints) cs.clone();
+                tmp2.fill = GridBagConstraints.HORIZONTAL;
+                panel.add(rep, tmp2);
                 // label aligned like others
                 cs.gridy++;
-                cs.anchor = GridBagConstraints.WEST;
+                cs.anchor = GridBagConstraints.EAST;
                 cs.ipadx = spaceWidth(l);
                 panel.add(l, cs);
+                cs.ipadx = 0;
                 break;
             case ABOVE:
                 // label aligned like others
-                cs.anchor = GridBagConstraints.WEST;
+                cs.anchor = GridBagConstraints.EAST;
                 cs.ipadx = spaceWidth(l);
                 panel.add(l, cs);
                 cs.ipadx = 0;
                 // variable in center of lower line
                 cs.gridy++;
-                cs.anchor = GridBagConstraints.CENTER;
+                cs.anchor = GridBagConstraints.WEST;
+                GridBagConstraints tmp3 = (GridBagConstraints) cs.clone();
+                tmp3.fill = GridBagConstraints.HORIZONTAL;
                 panel.add(rep, cs);
                 break;
         } 
@@ -157,7 +163,6 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         }
     }
 
-    @Override
     public void nextItem() {
         GridBagConstraints old = cs;
         GridBagConstraints n = new GridBagConstraints();
@@ -185,10 +190,6 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         JPanel p = new JPanel();
         p.setLayout(new GridBagLayout());
         return p;
-    }
-    
-    protected Insets createNextFlowInsets() {
-        return new Insets(0, 0, 6, 11);
     }
 
     @Override
@@ -219,11 +220,6 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         if (LOG.isTraceEnabled()) {
             LOG.trace("{} adding cell {}, gbc={}", indent(), component, gbcs());
         }
-        if (cs.gridx % 2 == 0) {
-            cs.gridx++;
-        }
-        cs.fill = GridBagConstraints.HORIZONTAL;
-        cs.insets = createNextFlowInsets();
         panel.add(component, cs);
     }
 
@@ -231,6 +227,8 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     public JPanel build() {
         // add glue to the bottom to allow resize
         if (panel.getComponentCount() > 0) {
+            panel.add(Box.createVerticalGlue());
+            LOG.trace("{} glue added", indent());
         }
         if (LOG.isTraceEnabled()) {
             LOG.trace("{} finishing: {}:{}", indent(), level, name());
@@ -243,19 +241,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         throw new UnsupportedOperationException("Invalid operation");
     }
     
-    protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
-        if (cs.gridx == 0 & cs.gridy == 0) {
-            int a = cs.anchor;
-            
-            switch (cs.anchor) {
-                case GridBagConstraints.CENTER:
-                case GridBagConstraints.WEST:  a = GridBagConstraints.NORTHWEST; break;
-                case GridBagConstraints.EAST:  a = GridBagConstraints.NORTHEAST; break;
-            }
-            cs.anchor = a;
-        }
-        return cs;
-    }
+    protected abstract GridBagConstraints prepareNextItem(GridBagConstraints cs);
     
     
     /**
@@ -277,13 +263,11 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
             cs.gridy = 0;
             cs.gridx++;
-            cs = super.prepareNextItem(cs);
             return cs;
         }
         
         @Override
         public void addHorizontalSeparator(JSeparator sep) {
-            sep.setOrientation(JSeparator.VERTICAL);
             cs.fill = GridBagConstraints.BOTH;
             cs.gridheight = GridBagConstraints.REMAINDER;
             panel.add(sep, cs);
@@ -309,14 +293,12 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         public Column(JPanel panel, int level) {
             super(panel, level);
-            panel.putClientProperty("jmri.layout.panel", "column");
         }
 
         @Override
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
             cs.gridx = 0;
             cs.gridy++;
-            cs = super.prepareNextItem(cs);
             return cs;
         }
         
@@ -339,19 +321,6 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
                 LOG.trace("{} added horiz separator {}, gbc={}", indent(), sep, gbcs());
             }
         }
-
-        @Override
-        public JPanel build() {
-            JPanel p = super.build(); 
-            // advance to the next row
-            nextItem();
-            cs.fill = GridBagConstraints.BOTH;
-            cs.weighty = 0.5;
-            p.add(new JPanel(), cs);
-            return p;
-        }
-        
-        
     }
     
     /**
@@ -376,7 +345,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         @Override
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
-            return super.prepareNextItem(new GridBagConstraints());
+            return new GridBagConstraints();
         }
 
         @Override
@@ -391,68 +360,46 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     public static class RootBuilder extends GridBagLayoutBuilder {
         public RootBuilder(JPanel panel) {
             super(panel, 1);
-            panel.setLayout(new GridBagLayout());
-            panel.setBorder(new EmptyBorder(12, 12, 12, 12));
         }
 
         @Override
         public JPanel build() {
             LOG.debug("RootBuilder finished");
-            nextItem();
-            GridBagConstraints spacerX = cs;
-            cs.gridy = 0;
-            cs.gridheight = GridBagConstraints.REMAINDER;
-            cs.fill = GridBagConstraints.BOTH;
-            cs.weightx = 1.0;
-            panel.add(new JPanel(), cs);
-            
-            nextItem();
-            cs.gridy = Math.max(0, cs.gridy) + 1;
-            cs.gridx = 0;
-            cs.gridwidth = GridBagConstraints.REMAINDER;
-            cs.gridheight = GridBagConstraints.REMAINDER;
-            cs.fill = GridBagConstraints.BOTH;
-            cs.weighty = 1.0;
-            panel.add(new JPanel(), cs);
             return panel;
         }
 
         @Override
+        public void nextItem() {
+            // no op
+        }
+
+        @Override
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
-            cs.anchor = GridBagConstraints.NORTHWEST;
-            cs.gridx++;
-            cs.fill = GridBagConstraints.VERTICAL;
             return cs;
         }
 
         @Override
         public void addHorizontalSeparator(JSeparator sep) {
             LOG.debug("Adding separator {} to root", sep);
-            panel.add(sep, cs);
+            panel.add(sep);
         }
 
         @Override
         public void addCellComponent(JComponent component) {
             LOG.debug("Adding cell {} to root", component);
-            panel.add(component, cs);
+            panel.add(component);
         }
 
         @Override
         public void addFullSlotComponent(JComponent c) {
             LOG.debug("Adding row {} to root", c);
-            Object panelHint = c.getClientProperty("jmri.layout.panel"); // NOI18N
-            if ("column".equals(panelHint)) { // NOI18N
-                if (cs.gridx > 0) {
-                    c.setBorder(new EmptyBorder(0, 12, 0, 0));
-                }
-            }
-            panel.add(c, cs);
+            panel.add(c);
         }
 
         @Override
         public void addVerticalComponent(JComponent c, float weight) {
             LOG.debug("Adding vertical {} to root", c);
-            panel.add(c, cs);
+            panel.add(c);
         }
 
         @Override
