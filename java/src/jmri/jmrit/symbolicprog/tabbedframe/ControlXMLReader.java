@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
-import javafx.scene.input.Mnemonic;
 import javax.swing.*;
 import javax.swing.table.*;
 import jmri.jmrit.roster.RosterEntry;
