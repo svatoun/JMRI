@@ -348,8 +348,6 @@ public class ControlXMLReader {
         
         private boolean lastItemNotEmpty = true;
 
-        private boolean lastItemNotEmpty = true;
-
         /**
          * Processes one child element of the content. Attempts to {@link #interpretElement} 
          * as control or a container.
