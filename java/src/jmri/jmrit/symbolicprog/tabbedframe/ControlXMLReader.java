@@ -4,8 +4,11 @@ import java.awt.GridBagConstraints;
 import java.awt.Insets;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TreeSet;
 import javax.swing.*;
 import javax.swing.table.*;
@@ -242,6 +245,71 @@ public class ControlXMLReader {
         return new Processor();
     }
     
+    private String findElementName(Element e) {
+        String s = e.getAttributeValue("item");
+        if (s == null || "".equals(s)) {
+            s = e.getAttributeValue("CV");
+            if (s != null && !"".equals(s)) {
+                s = "CV_" + s;
+            }
+        }
+        if (s == null || "".equals(s)) {
+            s = e.getAttributeValue("label");
+        }
+        if (s == null || "".equals(s)) {
+            Element parent = e.getParentElement();
+            int counter = 1;
+            boolean foundNext = false;
+            boolean found = false;
+            for (Element c : parent.getChildren()) {
+                if (c == e) {
+                    found = true;
+                }
+                if (c.getName().equals(e.getName())) {
+                    if (found) {
+                        foundNext = true;
+                        break;
+                    } else {
+                        counter++;
+                    }
+                }
+            }
+            if (foundNext) {
+                s = "" + counter;
+            } else {
+                return e.getName();
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(e.getName());
+        sb.append("[").append(s).append("]");
+        return sb.toString();
+    }
+    
+    private String unknownItemPath(Element e) {
+        StringBuilder sb = new StringBuilder();
+        while (e.getParentElement() != null) {
+            String prepend = findElementName(e);
+            if (sb.length() == 0) {
+                sb.append(prepend);
+            } else {
+                sb.insert(0, prepend + "/");
+            }
+            e = e.getParentElement();
+        }
+        return sb.toString();
+    }
+    
+    /**
+     * Names of "ignored" content elements. They have either a special meaning (pane/name)
+     * or are processed out of band by the parent (qualifier).
+     */
+    // PENDING: make extensible.
+    private static final Set<String>  IGNORED_CONTENT = new HashSet<>(Arrays.asList(
+        "qualifier",
+        "name"
+    ));
+    
     /**
      * Processes one (or more) level of container. Some containers, like column and row
      * do not need any special variables. Grid containers work with x-y coordinates which
@@ -271,7 +339,8 @@ public class ControlXMLReader {
                 String name = e.getName();
                 LOG.trace("component-set processing {} element", name);
                 if (processElement(e) == UNKNOWN) {
-                    LOG.warn("Unknown element name: ", name);
+                    LOG.warn("Unknown element name: {}, path: {} ", name, 
+                            unknownItemPath(e));
                 }
             }
         }
@@ -283,6 +352,10 @@ public class ControlXMLReader {
          * @return the created component, {@code null} or {@link #UNKNOWN}.
          */
         protected JComponent processElement(Element e) {
+            // qualifiers will be processed by the parent. Skip.
+            if (IGNORED_CONTENT.contains(e.getName())) {
+                return null;
+            }
             setElement(e);
             layoutBuilder.nextItem();
             layoutBuilder.configureItem(e);
@@ -373,7 +446,21 @@ public class ControlXMLReader {
          * @return xml attribute string value or {@code defValue}
          */
         protected String readAttribute(String name, String defValue) {
-            Attribute attr = e.getAttribute(name);
+            return readAttribute(e, name, defValue);
+        }
+        
+        /**
+         * Reads a XML attribute with fallback to a default value. If the
+         * XML attribute is missing or is empty, the {@code defValue} will be
+         * returned.
+         * 
+         * @param name attribute name
+         * @param defValue default value for missing/empty attributes, may be {@code null}.
+         * @param customE the element which attribute should be read
+         * @return xml attribute string value or {@code defValue}
+         */
+        protected String readAttribute(Element customE, String name, String defValue) {
+            Attribute attr = customE.getAttribute(name);
             if (attr == null) {
                 return defValue;
             }
@@ -559,8 +646,8 @@ public class ControlXMLReader {
             _varModel.setButtonModeFromProgrammer();
         }
 
-        protected JComponent makeFnMapping(Element modelElem) {
-            String extFnsESUval = readAttribute(ATTR_EXT_FNS_ESU, null);
+        protected JComponent makeFnMapping(Element panelElem) {
+            String extFnsESUval = readAttribute(modelElem, ATTR_EXT_FNS_ESU, null);
             JComponent n;
             if (extFnsESUval != null && !"no".equalsIgnoreCase(extFnsESUval)) {
                 FnMapPanelESU l = new FnMapPanelESU(_varModel, varList, modelElem, rosterEntry, _cvModel);
@@ -779,6 +866,23 @@ public class ControlXMLReader {
             this.gridAttList = gridAttributes;
         }
 
+        /** Special processing for groups, which wraps griditems.
+         * 
+         * @param e
+         * @return 
+         */
+        protected JComponent createGroupSection(Element e) {
+            // handle include/exclude
+            if (!PaneProgFrame.isIncludedFE(e, modelElem, rosterEntry, "", "")) {
+                return null;
+            }
+            // process with our own builder, so items will end up
+            // in the same grid. Can't call processSection, as that
+            // would terminate our builder with build().
+            processContent(e);
+            return null;
+        }
+        
         /**
          * Constrain recognized elements to just griditem, group.
          */
@@ -790,7 +894,7 @@ public class ControlXMLReader {
                 case ITEM_GRIDITEM:
                     return makeGridItem(e);
                 case ITEM_GROUP:
-                    return switchProcessor(delegate, e);
+                    return makeGroup(e);
                 default:
                     return UNKNOWN;
             }
