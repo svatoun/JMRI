@@ -132,7 +132,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
                 break;
             case BELOW:
                 // variable in center of upper line
-                cs.anchor = GridBagConstraints.CENTER;
+                cs.anchor = GridBagConstraints.WEST;
                 panel.add(rep, cs);
                 // label aligned like others
                 cs.gridy++;
@@ -148,7 +148,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
                 cs.ipadx = 0;
                 // variable in center of lower line
                 cs.gridy++;
-                cs.anchor = GridBagConstraints.CENTER;
+                cs.anchor = GridBagConstraints.WEST;
                 panel.add(rep, cs);
                 break;
         } 
@@ -353,7 +353,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         
         
     }
-    
+        
     /**
      * Creates a panel, which does NOT support adding left to right or top to bottom,
      * but to the individual cells of a grid.
