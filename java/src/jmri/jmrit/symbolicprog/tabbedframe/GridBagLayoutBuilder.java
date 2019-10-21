@@ -294,6 +294,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         @Override
         public void addFullSlotComponent(JComponent c) {
+//            cs.anchor = GridBagConstraints.NORTHWEST;
             cs.gridheight = GridBagConstraints.REMAINDER;
             panel.add(c, cs);
             if (LOG.isTraceEnabled()) {
@@ -322,6 +323,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         
         @Override
         public void addFullSlotComponent(JComponent c) {
+            cs.anchor = GridBagConstraints.NORTHWEST;
             cs.gridwidth = GridBagConstraints.REMAINDER;
             panel.add(c, cs);
             if (LOG.isTraceEnabled()) {            
