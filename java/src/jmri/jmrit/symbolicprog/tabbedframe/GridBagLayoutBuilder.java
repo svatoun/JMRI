@@ -234,7 +234,9 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         throw new UnsupportedOperationException("Invalid operation");
     }
     
-    protected abstract GridBagConstraints prepareNextItem(GridBagConstraints cs);
+    protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
+        return cs;
+    }
     
     
     /**
@@ -256,11 +258,13 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
             cs.gridy = 0;
             cs.gridx++;
+            cs = super.prepareNextItem(cs);
             return cs;
         }
         
         @Override
         public void addHorizontalSeparator(JSeparator sep) {
+            sep.setOrientation(JSeparator.VERTICAL);
             cs.fill = GridBagConstraints.BOTH;
             cs.gridheight = GridBagConstraints.REMAINDER;
             panel.add(sep, cs);
@@ -271,7 +275,6 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         @Override
         public void addFullSlotComponent(JComponent c) {
-//            cs.anchor = GridBagConstraints.NORTHWEST;
             cs.gridheight = GridBagConstraints.REMAINDER;
             panel.add(c, cs);
             if (LOG.isTraceEnabled()) {
@@ -287,18 +290,19 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         public Column(JPanel panel, int level) {
             super(panel, level);
+            panel.putClientProperty("jmri.layout.panel", "column");
         }
 
         @Override
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
             cs.gridx = 0;
             cs.gridy++;
+            cs = super.prepareNextItem(cs);
             return cs;
         }
         
         @Override
         public void addFullSlotComponent(JComponent c) {
-            cs.anchor = GridBagConstraints.NORTHWEST;
             cs.gridwidth = GridBagConstraints.REMAINDER;
             panel.add(c, cs);
             if (LOG.isTraceEnabled()) {            
@@ -340,7 +344,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         @Override
         protected GridBagConstraints prepareNextItem(GridBagConstraints cs) {
-            return new GridBagConstraints();
+            return super.prepareNextItem(new GridBagConstraints());
         }
 
         @Override

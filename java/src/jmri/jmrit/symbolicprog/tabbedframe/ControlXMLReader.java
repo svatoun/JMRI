@@ -345,6 +345,8 @@ public class ControlXMLReader {
             }
         }
 
+        private boolean lastItemNotEmpty = true;
+
         /**
          * Processes one child element of the content. Attempts to {@link #interpretElement} 
          * as control or a container.
@@ -357,12 +359,16 @@ public class ControlXMLReader {
                 return null;
             }
             setElement(e);
-            layoutBuilder.nextItem();
-            layoutBuilder.configureItem(e);
+            if (lastItemNotEmpty) {
+                layoutBuilder.nextItem();
+                layoutBuilder.configureItem(e);
+            }
+            lastItemNotEmpty = false;
             JComponent c = interpretElement();
             if (c == null || c == UNKNOWN) {
                 return c;
             }
+            lastItemNotEmpty = true;
             final JComponent fc = c;
 
             // PENDING: visual JComponent hierarchy follows the XML; if a child receives a qualifier "Q" from its parent XML
@@ -674,10 +680,10 @@ public class ControlXMLReader {
         protected JComponent processSection(LayoutBuilder sectionBuilder, Element e) {
             LayoutBuilder save = layoutBuilder;
             try {
-
-            } finally {
                 layoutBuilder = sectionBuilder;
+                lastItemNotEmpty = true;
                 processContent(e);
+            } finally {
                 layoutBuilder = save;
             }
             JComponent result = sectionBuilder.build();
