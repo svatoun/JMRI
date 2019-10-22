@@ -3,7 +3,7 @@ package jmri.jmrit.symbolicprog.tabbedframe;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import javax.swing.Box;
+import java.util.Iterator;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -23,10 +23,25 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     private static final Logger LOG = LoggerFactory.getLogger(GridBagLayoutBuilder.class);
     
     /**
+     * Tags components as JMRI panels. Used as a {@link JComponent#getClientProperty} key.
+     */
+    private static final String TAG_JMRI_PANEL = "jmri.layout.panel"; // NOI18N
+    
+    /**
+     * Value that identifies JComponent as "column" panel. See {@link #TAG_JMRI_PANE}
+     */
+    private static final String PANEL_COLUMN = "column"; // NOI18N
+
+    /**
      * The nesting level of this builder. This is roughtly the nesting
      * level of {@code row, column, grid, group} elements.
      */
     protected final int level;
+
+    /**
+     * Parent builder. Can be used to inspect the hierarchy.
+     */
+    protected final GridBagLayoutBuilder    parent;
     
     /**
      * The JPanel which is being produced. Each row, column, group or grid item
@@ -52,13 +67,14 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
      * Do not assign new values!
      */
     protected GridBagConstraints cs;
-
+    
     /**
      * Creates a new level of builder
      * @param panel the constructed panel
      * @param level nesting level
      */
-    private GridBagLayoutBuilder(JPanel panel, int level) {
+    private GridBagLayoutBuilder(GridBagLayoutBuilder parent, JPanel panel, int level) {
+        this.parent = parent;
         this.panel = panel;
         this.level = level;
         if (LOG.isTraceEnabled()) {
@@ -69,6 +85,34 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
     @Override
     public void configureItem(Element e) {
         // no op
+    }
+    
+    /**
+     * Access to the parent builder chain
+     * @return enumerates parents, the immediate parent first.
+     */
+    Iterable<GridBagLayoutBuilder> parents() {
+        class It implements Iterator<GridBagLayoutBuilder> {
+            private GridBagLayoutBuilder item = parent;
+            @Override
+            public boolean hasNext() {
+                return item != null;
+            }
+
+            @Override
+            public GridBagLayoutBuilder next() {
+                GridBagLayoutBuilder result = item;
+                item = result.parent;
+                return result;
+            }
+        };
+        return new Iterable<GridBagLayoutBuilder>() {
+            @Override
+            public Iterator<GridBagLayoutBuilder> iterator() {
+                return new It();
+            }
+            
+        };
     }
     
     protected String indent() {
@@ -88,7 +132,17 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         }
         return spaceWidth;
     }
+
+    protected int controlColumnGapWidth() {
+        return panel.getFontMetrics(panel.getFont()).stringWidth(CONTROL_GAP_Ms);
+    }
     
+    /**
+     * Represents gap between two main control columns. Since the gap width is measured through
+     * font metrics, this should be a String of wide characters such as Ms.
+     */
+    private static final String CONTROL_GAP_Ms = "MMMMMMMMMM";
+        
     protected String name() {
         return getClass().getSimpleName();
     }
@@ -118,10 +172,17 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
                 cs.fill = GridBagConstraints.HORIZONTAL;
                 panel.add(l, cs);
                 cs.gridx++;
-                cs.anchor = GridBagConstraints.BASELINE_TRAILING;
+                
+                // ESU bugfix: if a component does not have a baseline, align
+                // it northwest, otherwise it would be centered (and misaligned)
+                if (rep.getBaseline(0, 0) > 0) {
+                    cs.anchor = GridBagConstraints.BASELINE_TRAILING;
+                } else {
+                    cs.anchor = GridBagConstraints.NORTHEAST;
+                }
                 panel.add(rep, cs);
                 break;
-//        log.info("Exit item="+name+";cs.gridx="+cs.gridx+";cs.gridy="+cs.gridy+";cs.anchor="+cs.anchor+";cs.ipadx="+cs.ipadx);
+
             case RIGHT:
                 cs.anchor = GridBagConstraints.EAST;
                 panel.add(rep, cs);
@@ -130,6 +191,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
                 cs.ipadx = spaceWidth(l);
                 panel.add(l, cs);
                 break;
+
             case BELOW:
                 // variable in center of upper line
                 cs.anchor = GridBagConstraints.WEST;
@@ -193,22 +255,22 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
     @Override
     public LayoutBuilder rowSection() {
-        return new Row(createGBPanel(), level + 1);
+        return new Row(this, createGBPanel(), level + 1);
     }
 
     @Override
     public LayoutBuilder columnSection() {
-        return new Column(createGBPanel(), level + 1);
+        return new Column(this, createGBPanel(), level + 1);
     }
 
     @Override
     public LayoutBuilder gridSection() {
-        return new Grid(createGBPanel(), level + 1);
+        return new Grid(this, createGBPanel(), level + 1);
     }
 
     @Override
     public LayoutBuilder groupSection() {
-        return new Row(createGBPanel(), level + 1);
+        return new Row(this, createGBPanel(), level + 1);
     }
 
     @Override
@@ -257,6 +319,32 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         return cs;
     }
     
+    /**
+     * Generates special layout for main columns.
+     * The 1st level column (usually) represents one column of controls in the dialog.
+     * Certain panes have two-column layout. The columns must be visually clearly discrete
+     * so there must be some gap between them.
+     * <p/>
+     * This function generates an inset to the 2nd and following columns on the 1st level. for
+     * other components returns the {@link GridBagConstraints} unchanged.
+     * @param c component
+     * @param cs the constraints
+     * @return modified constraints
+     */
+    protected GridBagConstraints adjustMainColumnWidth(JComponent c, GridBagConstraints cs) {
+        if (!isColumnComponent(c)) {
+            return cs;
+        }
+        for (GridBagLayoutBuilder lb : parents()) {
+            if (lb instanceof GridBagLayoutBuilder) {
+                return cs;
+            }
+        }
+        if (cs.gridx > 0) {
+            cs.insets.left += controlColumnGapWidth();
+        }
+        return cs;
+    }
     
     /**
      * Builds a panel, where items are placed left-to-right. Each non-display
@@ -264,8 +352,8 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
      */
     static class Row extends GridBagLayoutBuilder {
 
-        public Row(JPanel panel, int level) {
-            super(panel, level);
+        public Row(GridBagLayoutBuilder parent, JPanel panel, int level) {
+            super(parent, panel, level);
         }
         
         /**
@@ -294,7 +382,6 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
 
         @Override
         public void addFullSlotComponent(JComponent c) {
-//            cs.anchor = GridBagConstraints.NORTHWEST;
             cs.gridheight = GridBagConstraints.REMAINDER;
             panel.add(c, cs);
             if (LOG.isTraceEnabled()) {
@@ -307,9 +394,9 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
      * Creates a panel where components are placed top to bottom.
      */
     static class Column extends GridBagLayoutBuilder {
-
-        public Column(JPanel panel, int level) {
-            super(panel, level);
+        
+        public Column(GridBagLayoutBuilder parent, JPanel panel, int level) {
+            super(parent, panel, level);
             panel.putClientProperty("jmri.layout.panel", "column");
         }
 
@@ -325,7 +412,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         public void addFullSlotComponent(JComponent c) {
             cs.anchor = GridBagConstraints.NORTHWEST;
             cs.gridwidth = GridBagConstraints.REMAINDER;
-            panel.add(c, cs);
+            panel.add(c, adjustMainColumnWidth(c, cs));
             if (LOG.isTraceEnabled()) {            
                 LOG.trace("{} added horiz component {}, gbc={}", indent(), c, gbcs());
             }
@@ -362,8 +449,8 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
      */
     static class Grid extends GridBagLayoutBuilder {
 
-        public Grid(JPanel panel, int level) {
-            super(panel, level);
+        public Grid(GridBagLayoutBuilder parent, JPanel panel, int level) {
+            super(parent, panel, level);
         }
 
         @Override
@@ -392,7 +479,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
      */
     public static class RootBuilder extends GridBagLayoutBuilder {
         public RootBuilder(JPanel panel) {
-            super(panel, 1);
+            super(null, panel, 1);
             panel.setLayout(new GridBagLayout());
             panel.setBorder(new EmptyBorder(12, 12, 12, 12));
         }
@@ -405,7 +492,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
             cs.gridy = 0;
             cs.gridheight = GridBagConstraints.REMAINDER;
             cs.fill = GridBagConstraints.BOTH;
-            cs.weightx = 1.0;
+            cs.weightx = 0.1;
             panel.add(new JPanel(), cs);
             
             nextItem();
@@ -414,7 +501,7 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
             cs.gridwidth = GridBagConstraints.REMAINDER;
             cs.gridheight = GridBagConstraints.REMAINDER;
             cs.fill = GridBagConstraints.BOTH;
-            cs.weighty = 1.0;
+            cs.weighty = 0.1;
             panel.add(new JPanel(), cs);
             return panel;
         }
@@ -438,17 +525,16 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
             LOG.debug("Adding cell {} to root", component);
             panel.add(component, cs);
         }
-
+        
         @Override
         public void addFullSlotComponent(JComponent c) {
             LOG.debug("Adding row {} to root", c);
-            Object panelHint = c.getClientProperty("jmri.layout.panel"); // NOI18N
-            if ("column".equals(panelHint)) { // NOI18N
+            if (isColumnComponent(c)) {
                 if (cs.gridx > 0) {
                     c.setBorder(new EmptyBorder(0, 12, 0, 0));
                 }
             }
-            panel.add(c, cs);
+            panel.add(c, adjustMainColumnWidth(c, cs));
         }
 
         @Override
@@ -461,5 +547,10 @@ public abstract class GridBagLayoutBuilder implements LayoutBuilder {
         public void addLabelControl(JLabel l, JComponent rep, RelativePos labelPos) {
             throw new IllegalArgumentException("Invalid operation");
         }
+    }
+    
+    private static boolean isColumnComponent(JComponent c) {
+        Object panelHint = c.getClientProperty(TAG_JMRI_PANEL); // NOI18N
+        return PANEL_COLUMN.equals(panelHint);
     }
 }
