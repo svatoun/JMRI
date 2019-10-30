@@ -16,6 +16,11 @@ public class QualifierCombiner implements Qualifier, java.beans.PropertyChangeLi
     public QualifierCombiner(List<Qualifier> qualifiers) {
         this.qualifiers = qualifiers;
 
+        System.err.println("Created: " + this + ", consists of:");
+        for (Qualifier q : qualifiers) {
+            System.err.println("\t" + q);
+        }
+        System.err.println("\n");
         setWatchedAvailable(currentDesiredState());
 
     }
@@ -30,6 +35,7 @@ public class QualifierCombiner implements Qualifier, java.beans.PropertyChangeLi
 
     @Override
     public void setWatchedAvailable(boolean enable) {
+        System.err.println(this + ": setVisible(" + enable + ") to: " + qualifiers.get(0));
         qualifiers.get(0).setWatchedAvailable(enable);
     }
 

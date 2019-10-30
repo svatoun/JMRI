@@ -19,6 +19,7 @@ public class JComponentQualifier extends ArithmeticQualifier {
         super(watchedVal, value, relation);
 
         this.component = component;
+        System.err.println("Created: " + this + ", comp: " + component + "\n\trelation: " + relation + ", watched: " + watchedVal.item());
 
         setWatchedAvailable(currentDesiredState());
     }
@@ -26,6 +27,7 @@ public class JComponentQualifier extends ArithmeticQualifier {
     @Override
     public void setWatchedAvailable(boolean enable) {
         component.setVisible(enable);
+        System.err.println("setVisible(" + enable + ") " + this + ", comp: " + component + "\n\twatched: " + watchedVal.item());
     }
 
     @Override
