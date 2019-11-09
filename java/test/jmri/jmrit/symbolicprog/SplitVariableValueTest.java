@@ -1,17 +1,31 @@
 package jmri.jmrit.symbolicprog;
 
+import static org.junit.Assert.assertEquals;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
+import java.util.EventObject;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
 import jmri.progdebugger.ProgDebugger;
 import jmri.util.CvUtil;
 import jmri.util.JUnitUtil;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ErrorCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -612,6 +626,292 @@ public class SplitVariableValueTest extends AbstractVariableValueTestBase {
     @Override
     public void tearDown() {
         super.tearDown();
+    }
+    
+    /**
+     */
+    class PrintListener implements PropertyChangeListener, DocumentListener, ActionListener {
+        List<Object>    events = new ArrayList<>();
+
+        List<ActionEvent> actions = new ArrayList<>();
+        List<Integer> intTransitions = new ArrayList<>();
+        List<Long> longTransitions = new ArrayList<>();
+        List<Object> objectTransitions = new ArrayList<>();
+        List<DocumentEvent> docEvents = new ArrayList<>();
+
+        Map<DocumentEvent, String> contents = new HashMap<>();
+        
+        VariableValue var;
+        CvValue cv1;
+        CvValue cv2;
+        
+        StringBuilder sb = new StringBuilder();
+
+        public PrintListener(VariableValue var, CvValue cv1, CvValue cv2) {
+            this.var = var;
+            this.cv1 = cv1;
+            this.cv2 = cv2;
+        }
+        
+        @Override
+        public void insertUpdate(DocumentEvent e) {
+            events.add(e);
+            docEvents.add(e);
+            try {
+                contents.put(e, e.getDocument().getText(0, e.getDocument().getLength()));
+            } catch (BadLocationException ex) {
+
+            }
+            printBuffer(e);
+        }
+
+        @Override
+        public void removeUpdate(DocumentEvent e) {
+        }
+
+        @Override
+        public void changedUpdate(DocumentEvent e) {
+            // not important
+        }
+
+        @Override
+        public void propertyChange(PropertyChangeEvent evt) {
+            String n = evt.getPropertyName();
+            if (n == null) {
+                n = "";
+            }
+            events.add(evt);
+            if (evt.getSource() == var) {
+                if ("Value".equals(evt.getPropertyName())) {
+                    intTransitions.add(var.getIntValue());
+                    longTransitions.add(var.getLongValue());
+                    objectTransitions.add(var.getValueObject());
+                }
+            }
+            printBuffer(evt);
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            events.add(e);
+            actions.add(e);
+            printBuffer(e);
+        }
+        
+        void printBuffer(Object o) {
+            sb.append(printEvent(o));
+        }
+        
+        public String printEvent(Object eo) {
+            StringBuilder sb = new StringBuilder();
+            if (eo instanceof EventObject) {
+                Object s = ((EventObject)eo).getSource();
+                if (s == var) {
+                    sb.append("VAR: ");
+                } else if (s == cv1) {
+                    sb.append("CV1: ");
+                } else if (s == cv2) {
+                    sb.append("CV2: ");
+                }
+            } else if (eo instanceof DocumentEvent) {
+                Document d = ((DocumentEvent)eo).getDocument();
+                if (d == ((JTextField)var.getCommonRep()).getDocument()) {
+                    sb.append("VAR: ");
+                } else if (d == cv1.getTableEntry().getDocument()) {
+                    sb.append("CV1: ");
+                } else if (d == cv2.getTableEntry().getDocument()) {
+                    sb.append("CV2: ");
+                }                            
+            }
+            sb.append(eo.getClass().getSimpleName()).append('\t');
+            if (eo instanceof PropertyChangeEvent) {
+                PropertyChangeEvent pe = (PropertyChangeEvent)eo;
+                sb.append(pe.getPropertyName()).append(": \t");
+                sb.append(pe.getOldValue()).append("\t -> ");
+                sb.append(pe.getNewValue());
+            } else if (eo instanceof DocumentEvent) {
+                DocumentEvent de = (DocumentEvent)eo;
+                if (de.getType() != DocumentEvent.EventType.INSERT) {
+                    return sb.toString();
+                }
+                String t = contents.get(de);
+                if (t == null) {
+                    return sb.toString();
+                }
+                sb.append("text: ").append(t);
+            }
+
+            sb.append("\n");
+            return sb.toString();
+        }
+
+        public String printEvents() {
+            return sb.toString();
+        }
+    }
+
+    @Test
+    public void testSeDefaultValue() {
+        HashMap<String, CvValue> v = createCvMap();
+        CvValue cv1 = new CvValue(lowCV, p);
+        CvValue cv2 = new CvValue(highCV, p);
+        // do not initialize CVs; they're default at load, initialized through variables.
+        v.put(lowCV, cv1);
+        v.put(highCV, cv2);
+        // create a variable pointed at CVs
+        SplitVariableValue var = new SplitVariableValue("name", "comment", "", false, false, false, false, lowCV,
+                "VVVVVVVV", 0, 255, v, null, null,
+                highCV, 1, 0, "VVVVVVVV", null, null, null, null);
+        
+        PrintListener l = new PrintListener(var, cv1, cv2);
+        var.addPropertyChangeListener(l);
+        cv1.addPropertyChangeListener(l);
+        cv2.addPropertyChangeListener(l);
+
+        ((JTextField)var.getCommonRep()).getDocument().addDocumentListener(l);
+        cv1.getTableEntry().getDocument().addDocumentListener(l);
+        cv2.getTableEntry().getDocument().addDocumentListener(l);
+        
+        // simulate default load by DecoderFile.processVariablesElement
+        var.setIntValue(4095);
+        
+        System.err.println(l.printEvents());
+        
+        assertEquals(4095, var.getIntValue());
+        assertEquals(0xff, cv1.getValue());
+        assertEquals(0x0f, cv2.getValue());
+    }
+    
+    @Test
+    public void testChangeIntValue() {
+        HashMap<String, CvValue> v = createCvMap();
+        CvValue cv1 = new CvValue(lowCV, p);
+        CvValue cv2 = new CvValue(highCV, p);
+        // do not initialize CVs; they're default at load, initialized through variables.
+        v.put(lowCV, cv1);
+        v.put(highCV, cv2);
+        // create a variable pointed at CVs
+        SplitVariableValue var = new SplitVariableValue("name", "comment", "", false, false, false, false, lowCV,
+                "VVVVVVVV", 0, 255, v, null, null,
+                highCV, 1, 0, "VVVVVVVV", null, null, null, null);
+
+        // simulate default load by DecoderFile.processVariablesElement
+        var.setIntValue(1234);
+        var.setCvState(VariableValue.FROMFILE);
+        
+        PrintListener l = new PrintListener(var, cv1, cv2);
+        var.addPropertyChangeListener(l);
+        cv1.addPropertyChangeListener(l);
+        cv2.addPropertyChangeListener(l);
+
+        ((JTextField)var.getCommonRep()).getDocument().addDocumentListener(l);
+        cv1.getTableEntry().getDocument().addDocumentListener(l);
+        cv2.getTableEntry().getDocument().addDocumentListener(l);
+        
+        // simulate default load by DecoderFile.processVariablesElement
+        var.setIntValue(4095);
+        
+        System.err.println(l.printEvents());
+        
+        assertEquals(4095, var.getIntValue());
+        assertEquals(0xff, cv1.getValue());
+        assertEquals(0x0f, cv2.getValue());
+    }
+    
+    @Test
+    public void testValueTransitions() {
+        HashMap<String, CvValue> v = createCvMap();
+        CvValue cv1 = new CvValue(lowCV, p);
+        CvValue cv2 = new CvValue(highCV, p);
+        // do not initialize CVs; they're default at load, initialized through variables.
+        v.put(lowCV, cv1);
+        v.put(highCV, cv2);
+        // create a variable pointed at CVs
+        SplitVariableValue var = new SplitVariableValue("name", "comment", "", false, false, false, false, lowCV,
+                "VVVVVVVV", 0, 255, v, null, null,
+                highCV, 1, 0, "VVVVVVVV", null, null, null, null);
+
+        class PCL implements PropertyChangeListener {
+            @Override
+            public void propertyChange(PropertyChangeEvent evt) {
+                if (!"Value".equals(evt.getPropertyName())) {
+                    return;
+                }
+                Object o = evt.getNewValue();
+                int n = o instanceof Integer ? (int)o : (int)(long)o;
+                
+                VariableValue src = (VariableValue)evt.getSource();
+                assertEquals(n, src.getIntValue());
+            }
+        }
+        
+        var.setIntValue(1234);
+        var.setCvState(VariableValue.FROMFILE);
+        
+        PCL pcl = new PCL();
+        var.addPropertyChangeListener(pcl);
+        var.setIntValue(3333);
+        
+        var.setIntValue(0);
+    }
+    
+    @Rule
+    public ErrorCollector collector = new ErrorCollector();
+
+    @Test
+    public void testFactorOffset() {
+        HashMap<String, CvValue> v = createCvMap();
+        CvValue cv1 = new CvValue(lowCV, p);
+        CvValue cv2 = new CvValue(highCV, p);
+        // do not initialize CVs; they're default at load, initialized through variables.
+        v.put(lowCV, cv1);
+        v.put(highCV, cv2);
+        // create a variable pointed at CVs
+        SplitVariableValue var = new SplitVariableValue("name", "comment", "", false, false, false, false, lowCV,
+                "VVVVVVVV", 0, 255, v, null, null,
+                highCV, 4, -3, "VVVVVVVV", null, null, null, null);
+
+        class PCL implements PropertyChangeListener {
+            List<Throwable> failures = new ArrayList<>();
+            int expected;
+            
+            @Override
+            public void propertyChange(PropertyChangeEvent evt) {
+                if (!"Value".equals(evt.getPropertyName())) {
+                    return;
+                }
+                Object o = evt.getNewValue();
+                int n = o instanceof Integer ? (int)o : (int)(long)o;
+                
+                VariableValue src = (VariableValue)evt.getSource();
+                try {
+                    assertEquals(n, src.getIntValue());
+                } catch (AssertionError ex) {
+                    failures.add(ex);
+                }
+                try {
+                    assertEquals(expected, src.getIntValue());
+                } catch (AssertionError ex) {
+                    failures.add(ex);
+                }
+            }
+        }
+        
+        var.setIntValue(11);
+        var.setCvState(VariableValue.FROMFILE);
+        
+        PCL pcl = new PCL();
+        var.addPropertyChangeListener(pcl);
+        pcl.expected = 121;
+        var.setIntValue(121);
+
+        assertEquals("Final value must match", 121, var.getIntValue());
+        pcl.expected = 0;
+        var.setIntValue(0);
+        
+        for (Throwable e : pcl.failures) {
+            collector.addError(e);
+        }
     }
 
     private final static Logger log = LoggerFactory.getLogger(SplitVariableValueTest.class);
