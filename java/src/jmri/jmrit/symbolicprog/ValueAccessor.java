@@ -5,14 +5,16 @@
  */
 package jmri.jmrit.symbolicprog;
 
-import javax.swing.MutableComboBoxModel;
+import javax.swing.Icon;
 
 /**
  *
  * @author sdedic
  */
-public interface DescriptiveComboModel<E> {
-    public void addDescription(E item, String description);
-    public void removeDescription(E item);
+public interface ValueAccessor<E, V> {
+    public boolean accept(Object item);
+    public Icon getIcon(E item);
     public String getDescription(E item);
+    public V getValue(E item);
+    public String getDisplayName(E item);
 }

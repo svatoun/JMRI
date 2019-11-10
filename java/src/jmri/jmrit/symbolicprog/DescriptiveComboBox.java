@@ -5,16 +5,16 @@
  */
 package jmri.jmrit.symbolicprog;
 
+import java.util.Objects;
 import javax.swing.ComboBoxModel;
+import javax.swing.Icon;
 import javax.swing.JComboBox;
-import javax.swing.event.AncestorListener;
-import javax.swing.event.ListDataListener;
 
 /**
  *
  * @author sdedic
  */
-public class ComboWithDescription<E> extends JComboBox<E> {
+public class DescriptiveComboBox<E> extends JComboBox<E> {
     /**
      * The original value of tooltip, set from outside.
      */
@@ -26,7 +26,7 @@ public class ComboWithDescription<E> extends JComboBox<E> {
      */
     private String combinedTooltipText;
     
-    private DescriptiveComboModel<E>  descriptionModel = NULL_DESCRIPTIONS;
+    private ValueAccessor<E, E>  accessor = NULL_DESCRIPTIONS;
 
     @Override
     public String getToolTipText() {
@@ -35,8 +35,8 @@ public class ComboWithDescription<E> extends JComboBox<E> {
 
     @Override
     public void setModel(ComboBoxModel<E> aModel) {
-        if (aModel instanceof DescriptiveComboModel) {
-            this.descriptionModel = (DescriptiveComboModel<E>)aModel;
+        if (aModel instanceof ValueAccessor) {
+            this.accessor = (ValueAccessor<E, E>)aModel;
         }
         super.setModel(aModel);
     }
@@ -47,18 +47,30 @@ public class ComboWithDescription<E> extends JComboBox<E> {
         super.setToolTipText(text);
     }
     
-    private static final DescriptiveComboModel NULL_DESCRIPTIONS = new DescriptiveComboModel<Object>() {
+    private static final ValueAccessor NULL_DESCRIPTIONS = new ValueAccessor<Object, Object>() {
         @Override
-        public void addDescription(Object item, String description) {
+        public boolean accept(Object item) {
+            return true;
         }
-
-        @Override
-        public void removeDescription(Object item) {
-        }
-
+        
         @Override
         public String getDescription(Object item) {
             return null;
+        }
+
+        @Override
+        public Icon getIcon(Object item) {
+            return null;
+        }
+
+        @Override
+        public Object getValue(Object item) {
+            return item;
+        }
+
+        @Override
+        public String getDisplayName(Object item) {
+            return Objects.toString(item);
         }
     };
 }
