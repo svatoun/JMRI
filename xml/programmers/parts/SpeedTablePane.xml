@@ -13,6 +13,11 @@
   <name xml:lang="nl">Snelheidsgrafiek</name>
   <column>
     <row>
+      <qualifier>
+        <variableref>Speed Table Definition</variableref>
+        <relation>exists</relation>
+        <value>1</value>
+      </qualifier>
       <column>
         <display item="Speed Table Definition" format="onradiobutton" layout="above" label="Select this button to use a Speed Table for Speed Control">
           <label xml:lang="ca">Selecciona aquest botó per fer servir taula de velocitats</label>
@@ -23,11 +28,6 @@
           <label xml:lang="nl">Selecteer deze knop om de Snelheidsgrafiek toe te passen</label>
         </display>
         <label>
-          <qualifier>
-            <variableref>Speed Table Definition</variableref>
-            <relation>exists</relation>
-            <value>1</value>
-          </qualifier>
           <text>            To turn off, use Basic Speed Control pane</text>
           <text xml:lang="ca">            per dishabilitar, Utilitza el panell de control Bàsic</text>
           <text xml:lang="cs">            pro vypnutí použijte Základní řízení rychlosti</text>
@@ -64,6 +64,11 @@
       </column>
     </row>
     <row>
+      <qualifier>
+        <variableref>Speed Table Definition</variableref>
+        <relation>eq</relation>
+        <value>1</value>
+      </qualifier>
       <column>
         <display item="Speed Table" layout="above"/>
         <label>
@@ -72,6 +77,11 @@
       </column>
     </row>
   <row>
+    <qualifier>
+      <variableref>Speed Table Definition</variableref>
+      <relation>eq</relation>
+      <value>1</value>
+    </qualifier>
     <column>
       <label>
         <text> </text>

@@ -9,6 +9,11 @@
   <name xml:lang="it">Controllo Semplificato Velocità </name>
   <name xml:lang="nl">Snelheid</name>
   <column>
+    <qualifier>
+        <variableref>Speed Table Definition</variableref>
+        <relation>exists</relation>
+        <value>1</value>
+    </qualifier>
     <row>
       <column>
         <label>
@@ -50,6 +55,11 @@
     </row>
     <row>
       <column>
+        <qualifier>
+            <variableref>Speed Table Definition</variableref>
+            <relation>eq</relation>
+            <value>0</value>
+        </qualifier>
         <grid ipadx="10" ipady="2">
           <!-- default padding for all grid items -->
           <griditem gridx="0" gridy="0" weightx="1" anchor="LINE_END">
@@ -122,6 +132,13 @@
       </column>
     </row>
     <row>
+    <!--
+      <qualifier>
+          <variableref>Speed Table Definition</variableref>
+          <relation>eq</relation>
+          <value>0</value>
+      </qualifier>
+              -->
       <column>
         <label>
           <text> </text>
