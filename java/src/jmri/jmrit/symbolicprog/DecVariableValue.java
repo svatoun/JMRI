@@ -6,9 +6,10 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
-import java.util.ArrayList;
+import java.beans.PropertyChangeListener;
 import java.util.HashMap;
 import java.util.Hashtable;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JSlider;
 import javax.swing.JTextField;
@@ -21,8 +22,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Bob Jacobsen Copyright (C) 2001
  */
-public class DecVariableValue extends VariableValue
-        implements ActionListener, FocusListener {
+public class DecVariableValue extends VariableValue {
 
     public DecVariableValue(String name, String comment, String cvName,
             boolean readOnly, boolean infoOnly, boolean writeOnly, boolean opsOnly,
@@ -35,8 +35,11 @@ public class DecVariableValue extends VariableValue
         _defaultColor = _value.getBackground();
         _value.setBackground(COLOR_UNKNOWN);
         // connect to the JTextField value, cv
-        _value.addActionListener(this);
-        _value.addFocusListener(this);
+        listener = new L(_value, true);
+        _value.addActionListener(listener);
+        _value.addFocusListener(listener);
+        addPropertyChangeListener(listener);
+        
         CvValue cv = _cvMap.get(getCvNum());
         cv.addPropertyChangeListener(this);
         cv.setState(CvValue.FROMFILE);
@@ -47,7 +50,8 @@ public class DecVariableValue extends VariableValue
         super.setToolTipText(t);   // do default stuff
         _value.setToolTipText(t);  // set our value
     }
-
+    
+    private L   listener;
     int _maxVal;
     int _minVal;
 
@@ -137,7 +141,6 @@ public class DecVariableValue extends VariableValue
     /**
      * ActionListener implementations
      */
-    @Override
     public void actionPerformed(ActionEvent e) {
         if (log.isDebugEnabled()) {
             log.debug("actionPerformed");
@@ -149,25 +152,6 @@ public class DecVariableValue extends VariableValue
         } catch (java.lang.NumberFormatException ex) {
             _value.setText(oldContents);
         }
-    }
-
-    /**
-     * FocusListener implementations
-     */
-    @Override
-    public void focusGained(FocusEvent e) {
-        if (log.isDebugEnabled()) {
-            log.debug("focusGained");
-        }
-        enterField();
-    }
-
-    @Override
-    public void focusLost(FocusEvent e) {
-        if (log.isDebugEnabled()) {
-            log.debug("focusLost");
-        }
-        exitField();
     }
 
     // to complete this class, fill in the routines to handle "Value" parameter
@@ -191,12 +175,12 @@ public class DecVariableValue extends VariableValue
     public Object getValueObject() {
         return Integer.valueOf(_value.getText());
     }
-
+    
     @Override
     public Component getCommonRep() {
         if (getReadOnly()) {
             JLabel r = new JLabel(_value.getText());
-            reps.add(r);
+            addPropertyChangeListener(new L(r, false));
             updateRepresentation(r);
             return r;
         } else {
@@ -207,28 +191,19 @@ public class DecVariableValue extends VariableValue
     @Override
     public void setAvailable(boolean a) {
         _value.setVisible(a);
-        for (Component c : reps) {
-            c.setVisible(a);
-        }
         super.setAvailable(a);
     }
-
-    java.util.List<Component> reps = new java.util.ArrayList<Component>();
 
     @Override
     public Component getNewRep(String format) {
         if (format.equals("vslider")) {
             DecVarSlider b = new DecVarSlider(this, _minVal, _maxVal);
             b.setOrientation(JSlider.VERTICAL);
-            sliders.add(b);
-            reps.add(b);
             updateRepresentation(b);
             return b;
         } else if (format.equals("hslider")) {
             DecVarSlider b = new DecVarSlider(this, _minVal, _maxVal);
             b.setOrientation(JSlider.HORIZONTAL);
-            sliders.add(b);
-            reps.add(b);
             updateRepresentation(b);
             return b;
         } else if (format.equals("hslider-percent")) {
@@ -255,24 +230,20 @@ public class DecVariableValue extends VariableValue
             b.setLabelTable(labelTable);
             b.setPaintTicks(true);
             b.setPaintLabels(true);
-            sliders.add(b);
             updateRepresentation(b);
             if (!getAvailable()) {
                 b.setVisible(false);
             }
             return b;
         } else {
-            JTextField value = new VarTextField(_value.getDocument(), _value.getText(), fieldLength(), this);
+            JTextField value = new VarTextField(_value.getDocument(), _value.getText(), fieldLength());
             if (getReadOnly() || getInfoOnly()) {
                 value.setEditable(false);
             }
-            reps.add(value);
             updateRepresentation(value);
             return value;
         }
     }
-
-    ArrayList<DecVarSlider> sliders = new ArrayList<DecVarSlider>();
 
     /**
      * Set a new value, including notification as needed. This does the
@@ -402,65 +373,96 @@ public class DecVariableValue extends VariableValue
     // stored value, read-only Value
     JTextField _value = null;
 
+    private class L implements FocusListener, PropertyChangeListener, ActionListener {
+        private final JComponent target;
+        private final boolean changeState;
+        
+        L(JComponent target, boolean state) {
+            this.changeState = state;
+            this.target = target;
+        }
+        
+        @Override
+        public void actionPerformed(java.awt.event.ActionEvent e) {
+            DecVariableValue.this.actionPerformed(e);
+        }
+
+        @Override
+        public void focusGained(FocusEvent e) {
+            if (log.isDebugEnabled()) {
+                log.debug("focusGained");
+            }
+            enterField();
+        }
+
+        @Override
+        public void focusLost(FocusEvent e) {
+            if (log.isDebugEnabled()) {
+                log.debug("focusLost");
+            }
+            exitField();
+        }
+
+        @Override
+        public void propertyChange(java.beans.PropertyChangeEvent e) {
+            originalPropertyChanged(e);
+        }
+
+        void originalPropertyChanged(java.beans.PropertyChangeEvent e) {
+            // update this color from original state
+            if (null == e.getPropertyName()) {
+                updateState();
+            }
+            switch (e.getPropertyName()) {
+                case "State":
+                    if (!changeState) {
+                        break;
+                    }
+                case "Available":
+                    updateState();
+                    break;
+                default:
+                    // just do nothing
+            }
+        }
+
+        private void updateState() {
+            target.setBackground(state2Color(getState()));
+            target.setVisible(getAvailable());
+        }
+    }
+    
     /* Internal class extends a JTextField so that its color is consistent with
      * an underlying variable
      *
      * @author   Bob Jacobsen   Copyright (C) 2001
      */
     public class VarTextField extends JTextField {
+        private final L listener = new L(this, true);
 
-        VarTextField(Document doc, String text, int col, DecVariableValue var) {
+        VarTextField(Document doc, String text, int col) {
             super(doc, text, col);
-            _var = var;
-            // get the original color right
-            setBackground(_var._value.getBackground());
             // listen for changes to ourself
-            addActionListener(new java.awt.event.ActionListener() {
-                @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
-                    thisActionPerformed(e);
-                }
-            });
-            addFocusListener(new java.awt.event.FocusListener() {
-                @Override
-                public void focusGained(FocusEvent e) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("focusGained");
-                    }
-                    enterField();
-                }
+            addActionListener(listener);
+            addFocusListener(listener);
+        }
 
-                @Override
-                public void focusLost(FocusEvent e) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("focusLost");
-                    }
-                    exitField();
-                }
-            });
+        @Override
+        public void addNotify() {
+            super.addNotify();
             // listen for changes to original state
-            _var.addPropertyChangeListener(new java.beans.PropertyChangeListener() {
-                @Override
-                public void propertyChange(java.beans.PropertyChangeEvent e) {
-                    originalPropertyChanged(e);
-                }
-            });
+            // PENDING: should use WeakListener, makes upwards reference from model
+            // to UI layer. The listener could also monitor hierarchy events, so
+            // this addNotify/removeNotify + whole subclass would useless.
+            DecVariableValue.this.addPropertyChangeListener(listener);
+            listener.updateState();
         }
 
-        DecVariableValue _var;
-
-        void thisActionPerformed(java.awt.event.ActionEvent e) {
-            // tell original
-            _var.actionPerformed(e);
+        @Override
+        public void removeNotify() {
+            DecVariableValue.this.removePropertyChangeListener(listener);
+            super.removeNotify();
         }
-
-        void originalPropertyChanged(java.beans.PropertyChangeEvent e) {
-            // update this color from original state
-            if (e.getPropertyName().equals("State")) {
-                setBackground(_var._value.getBackground());
-            }
-        }
-
     }
 
     // clean up connections when done
@@ -469,13 +471,20 @@ public class DecVariableValue extends VariableValue
         if (log.isDebugEnabled()) {
             log.debug("dispose");
         }
+        // This is completely unnecessary: _value and this form a cluster
+        // which will be GCed at once, no need to null references or unregister
+        // listeners. 
+        // if _value is null-ed, this instance becomes broken (many methods
+        // assume _value is not null) as it uses _value as the data model.
         if (_value != null) {
-            _value.removeActionListener(this);
+            _value.removeActionListener(listener);
+            _value.removeFocusListener(listener);
+            removePropertyChangeListener(listener);
+            listener = null;
         }
         _cvMap.get(getCvNum()).removePropertyChangeListener(this);
 
         _value = null;
-        // do something about the VarTextField
     }
 
     // initialize logging

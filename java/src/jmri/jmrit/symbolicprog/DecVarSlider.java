@@ -1,5 +1,7 @@
 package jmri.jmrit.symbolicprog;
 
+import java.awt.Color;
+import java.beans.PropertyChangeListener;
 import javax.swing.BoundedRangeModel;
 import javax.swing.DefaultBoundedRangeModel;
 import javax.swing.JSlider;
@@ -15,28 +17,29 @@ import org.slf4j.LoggerFactory;
  * @author   Bob Jacobsen   Copyright (C) 2001
  */
 public class DecVarSlider extends JSlider implements ChangeListener {
-
+    private final PropertyChangeListener varListener = this::originalPropertyChanged;
+    
     DecVarSlider(DecVariableValue var, int min, int max) {
         super(new DefaultBoundedRangeModel(min, 0, min, max));
         _var = var;
-        // get the original color right
-        setBackground(_var.getColor());
-        if (_var.getColor() == _var.getDefaultColor()) {
-            setOpaque(false);
-        } else {
-            setOpaque(true);
-        }
         // set the original value
         setValue(Integer.parseInt(_var.getValueString()));
         // listen for changes here
         addChangeListener(this);
+    }
+
+    @Override
+    public void removeNotify() {
+        _var.removePropertyChangeListener(varListener);
+        super.removeNotify();
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
         // listen for changes to associated variable
-        _var.addPropertyChangeListener(new java.beans.PropertyChangeListener() {
-            @Override
-            public void propertyChange(java.beans.PropertyChangeEvent e) {
-                originalPropertyChanged(e);
-            }
-        });
+        _var.addPropertyChangeListener(varListener);
+        updateState();
     }
 
     @Override
@@ -49,6 +52,17 @@ public class DecVarSlider extends JSlider implements ChangeListener {
         _var.setIntValue(r.getValue());
         _var.setState(AbstractValue.EDITED);
     }
+    
+    void updateState() {
+        Color c = _var.state2Color(_var.getState());
+        setBackground(c);
+        if (c == null  || c == _var.getDefaultColor()) {
+            setOpaque(false);
+        } else {
+            setOpaque(true);
+        }
+        setVisible(_var.getAvailable());
+    }
 
     DecVariableValue _var;
 
@@ -56,18 +70,15 @@ public class DecVarSlider extends JSlider implements ChangeListener {
         if (log.isDebugEnabled()) {
             log.debug("VarSlider saw property change: " + e);
         }
-        // update this color from original state
-        if (e.getPropertyName().equals("State")) {
-            setBackground(_var.getColor());
-            if (_var.getColor() == _var.getDefaultColor()) {
-                setOpaque(false);
-            } else {
-                setOpaque(true);
-            }
-        }
-        if (e.getPropertyName().equals("Value")) {
-            int newValue = Integer.parseInt(((JTextField) _var.getCommonRep()).getText());
-            setValue(newValue);
+        switch (e.getPropertyName()) {
+            // update this color from original state
+            case "Value":
+                int newValue = Integer.parseInt(((JTextField) _var.getCommonRep()).getText());
+                setValue(newValue);
+                break;
+            case "State": 
+            case "Available":
+                updateState();
         }
     }
 

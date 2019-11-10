@@ -313,7 +313,8 @@ public abstract class AbstractVariableValueTestBase {
         VariableValue variable = makeVar("label", "comment", "", false, false, false, false, "81", "XXVVVVXX", 0, 255, v, null, null);
         // get a representation
         JComponent rep = (JComponent) variable.getNewRep("");
-
+        rep.addNotify();
+        
         Assert.assertEquals("FROMFILE color", VariableValue.COLOR_FROMFILE, variable.getCommonRep().getBackground());
         Assert.assertEquals("FROMFILE color", VariableValue.COLOR_FROMFILE, rep.getBackground());
 
@@ -341,7 +342,8 @@ public abstract class AbstractVariableValueTestBase {
         VariableValue variable = makeVar("label", "comment", "", false, false, false, false, "81", "XXVVVVXX", 0, 255, v, null, null);
         // get a representation
         JComponent rep = (JComponent) variable.getNewRep("");
-
+        rep.addNotify();
+        
         Assert.assertEquals("FROMFILE color", VariableValue.COLOR_FROMFILE, variable.getCommonRep().getBackground());
         Assert.assertEquals("FROMFILE color", VariableValue.COLOR_FROMFILE, rep.getBackground());
 

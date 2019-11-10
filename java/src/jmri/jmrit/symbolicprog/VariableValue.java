@@ -1,5 +1,9 @@
 package jmri.jmrit.symbolicprog;
 
+import static jmri.jmrit.symbolicprog.AbstractValue.COLOR_UNKNOWN;
+import static jmri.jmrit.symbolicprog.AbstractValue.UNKNOWN;
+
+import java.awt.Color;
 import java.awt.Component;
 import java.util.HashMap;
 import javax.swing.JComponent;
@@ -315,37 +319,42 @@ public abstract class VariableValue extends AbstractValue implements java.beans.
         return _state;
     }
 
-    public void setState(int state) {
+    /**
+     * @param state the variable state
+     * @return Color representation of the state. Returns
+     * {@code null} to use the default color.
+     */
+    protected Color state2Color(int state) {
         switch (state) {
             case UNKNOWN:
-                setColor(COLOR_UNKNOWN);
-                break;
+                return COLOR_UNKNOWN;
             case EDITED:
-                setColor(COLOR_EDITED);
-                break;
+                return COLOR_EDITED;
             case READ:
-                setColor(COLOR_READ);
-                break;
+                return COLOR_READ;
             case STORED:
-                setColor(COLOR_STORED);
-                break;
+                return COLOR_STORED;
             case FROMFILE:
-                setColor(COLOR_FROMFILE);
-                break;
+                return COLOR_FROMFILE;
             case SAME:
-                setColor(COLOR_SAME);
-                break;
+                return COLOR_SAME;
             case DIFF:
-                setColor(COLOR_DIFF);
-                break;
+                return COLOR_DIFF;
             default:
                 log.error("Inconsistent state: " + _state);
+                return null;
         }
-        if (_state != state || _state == UNKNOWN) {
-            prop.firePropertyChange("State", Integer.valueOf(_state), Integer.valueOf(state));
-        }
-        _state = state;
     }
+
+    public void setState(int state) {
+        setColor(state2Color(state));
+        if (_state != state || _state == UNKNOWN) {
+            int oldState = _state;
+            _state = state;
+            prop.firePropertyChange("State", oldState, state);
+        }
+    }
+    
     private int _state = UNKNOWN;
 
     /**
