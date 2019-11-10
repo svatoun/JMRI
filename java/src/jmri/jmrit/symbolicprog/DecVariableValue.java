@@ -210,7 +210,11 @@ public class DecVariableValue extends VariableValue
     public Component getCommonRep() {
         if (getReadOnly()) {
             JLabel r = new JLabel(_value.getText());
-            reps.add(r);
+            addPropertyChangeListener((evt) -> {
+                if ("Available".equals(evt.getPropertyName())) { // NOI18N
+                    r.setVisible(getAvailable());
+                }
+            });
             updateRepresentation(r);
             return r;
         } else {
@@ -218,31 +222,28 @@ public class DecVariableValue extends VariableValue
         }
     }
 
+    // FIXME: this is not necessary to override. As representations are
+    // created by this class, the representation can listen on property changes
+    // and make visible itself.
+    // since `reps' is not used for any other reason, it can be discarded; the JComponent
+    // can be a WeakListener, so it will not be kept; in addition, it can register
+    // itself in its add/removeNotify.
     @Override
     public void setAvailable(boolean a) {
         _value.setVisible(a);
-        for (Component c : reps) {
-            c.setVisible(a);
-        }
         super.setAvailable(a);
     }
-
-    java.util.List<Component> reps = new java.util.ArrayList<Component>();
 
     @Override
     public Component getNewRep(String format) {
         if (format.equals("vslider")) {
             DecVarSlider b = new DecVarSlider(this, _minVal, _maxVal);
             b.setOrientation(JSlider.VERTICAL);
-            sliders.add(b);
-            reps.add(b);
             updateRepresentation(b);
             return b;
         } else if (format.equals("hslider")) {
             DecVarSlider b = new DecVarSlider(this, _minVal, _maxVal);
             b.setOrientation(JSlider.HORIZONTAL);
-            sliders.add(b);
-            reps.add(b);
             updateRepresentation(b);
             return b;
         } else if (format.equals("hslider-percent")) {
@@ -269,7 +270,6 @@ public class DecVariableValue extends VariableValue
             b.setLabelTable(labelTable);
             b.setPaintTicks(true);
             b.setPaintLabels(true);
-            sliders.add(b);
             updateRepresentation(b);
             if (!getAvailable()) {
                 b.setVisible(false);
@@ -279,7 +279,7 @@ public class DecVariableValue extends VariableValue
             JComponent val;
             
             boolean nonEditable = getReadOnly() || getInfoOnly();
-            if (!nonEditable && _minVal > Integer.MIN_VALUE && _maxVal < Integer.MAX_VALUE) {
+            if (false && !nonEditable && _minVal > Integer.MIN_VALUE && _maxVal < Integer.MAX_VALUE) {
                 String initText = _value.getText();
                 Number initV;
                 try {
@@ -295,7 +295,6 @@ public class DecVariableValue extends VariableValue
                 }
                 val = value;
             }
-            reps.add(val);
             updateRepresentation(val);
             return val;
         }
@@ -435,8 +434,6 @@ public class DecVariableValue extends VariableValue
         }
     }
 
-    ArrayList<DecVarSlider> sliders = new ArrayList<DecVarSlider>();
-
     /**
      * Set a new value, including notification as needed. This does the
      * conversion from string to int, so if the place where formatting needs to
@@ -571,43 +568,42 @@ public class DecVariableValue extends VariableValue
      * @author   Bob Jacobsen   Copyright (C) 2001
      */
     public class VarTextField extends JTextField {
+        private final L listener = new L();
+        
+        private class L implements FocusListener, PropertyChangeListener, ActionListener {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                thisActionPerformed(e);
+            }
 
+            @Override
+            public void focusGained(FocusEvent e) {
+                if (log.isDebugEnabled()) {
+                    log.debug("focusGained");
+                }
+                enterField();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (log.isDebugEnabled()) {
+                    log.debug("focusLost");
+                }
+                exitField();
+            }
+
+            @Override
+            public void propertyChange(java.beans.PropertyChangeEvent e) {
+                originalPropertyChanged(e);
+            }
+        }
+        
         VarTextField(Document doc, String text, int col, DecVariableValue var) {
             super(doc, text, col);
             _var = var;
-            // get the original color right
-            setBackground(_var._value.getBackground());
             // listen for changes to ourself
-            addActionListener(new java.awt.event.ActionListener() {
-                @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
-                    thisActionPerformed(e);
-                }
-            });
-            addFocusListener(new java.awt.event.FocusListener() {
-                @Override
-                public void focusGained(FocusEvent e) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("focusGained");
-                    }
-                    enterField();
-                }
-
-                @Override
-                public void focusLost(FocusEvent e) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("focusLost");
-                    }
-                    exitField();
-                }
-            });
-            // listen for changes to original state
-            _var.addPropertyChangeListener(new java.beans.PropertyChangeListener() {
-                @Override
-                public void propertyChange(java.beans.PropertyChangeEvent e) {
-                    originalPropertyChanged(e);
-                }
-            });
+            addActionListener(listener);
+            addFocusListener(listener);
         }
 
         DecVariableValue _var;
@@ -619,11 +615,39 @@ public class DecVariableValue extends VariableValue
 
         void originalPropertyChanged(java.beans.PropertyChangeEvent e) {
             // update this color from original state
-            if (e.getPropertyName().equals("State")) {
-                setBackground(_var._value.getBackground());
+            if (null == e.getPropertyName()) {
+                updateState();
+            }
+            switch (e.getPropertyName()) {
+                case "State":
+                case "Available":
+                    updateState();
+                    break;
+                default:
+                    // just do nothing
             }
         }
+        
+        private void updateState() {
+            setBackground(state2Color(_var.getState()));
+            setVisible(_var.getAvailable());
+        }
 
+        @Override
+        public void addNotify() {
+            super.addNotify();
+            // listen for changes to original state
+            // PENDING: should use WeakListener, makes upwards reference from model
+            // to UI layer.
+            _var.addPropertyChangeListener(listener);
+            updateState();
+        }
+
+        @Override
+        public void removeNotify() {
+            _var.removePropertyChangeListener(listener);
+            super.removeNotify();
+        }
     }
 
     // clean up connections when done
@@ -638,7 +662,6 @@ public class DecVariableValue extends VariableValue
         _cvMap.get(getCvNum()).removePropertyChangeListener(this);
 
         _value = null;
-        // do something about the VarTextField
     }
 
     // initialize logging

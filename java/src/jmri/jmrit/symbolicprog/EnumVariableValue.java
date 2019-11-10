@@ -185,8 +185,6 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
             }
         }
 
-        int oldVal = getIntValue();
-
         // called for new values - set the CV as needed
         CvValue cv = _cvMap.get(getCvNum());
         // compute new cv value by combining old and request
@@ -200,7 +198,7 @@ public class EnumVariableValue extends VariableValue implements ActionListener {
             if (log.isDebugEnabled()) {
                 log.debug(label() + " about to firePropertyChange");
             }
-            prop.firePropertyChange("Value", null, oldVal);
+            prop.firePropertyChange("Value", null, newVal);
             if (log.isDebugEnabled()) {
                 log.debug(label() + " returned to from firePropertyChange");
             }
