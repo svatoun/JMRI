@@ -25,6 +25,9 @@
             <xi:include href="http://jmri.org/xml/decoders/fucik/servodecoder_vars_common.xml"/>
             <xi:include href="http://jmri.org/xml/decoders/fucik/servodecoder_vars_2_4.xml"/>
         </variables>
+        <resets>
+          <factReset label="Reset All CVs" CV="8" default="33"/>
+        </resets>
     </decoder>
     <xi:include href="http://jmri.org/xml/decoders/fucik/servodecoder_panels_basic.xml"/>
     <xi:include href="http://jmri.org/xml/decoders/fucik/servodecoder_panels_2_4.xml"/>
