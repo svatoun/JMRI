@@ -69,9 +69,14 @@ public class LIUSBEthernetXNetPacketizer extends jmri.jmrix.lenz.liusb.LIUSBXNet
         int i;
         byte lastbyte = (byte) 0xFF;
         log.debug("loading characters from port");
+        StringBuilder sb = new StringBuilder();
         for (i = 0; i < msg.maxSize(); i++) {
             byte char1 = readByteProtected(istream);
             // This is a test for the LIUSB device
+            if (sb.length() > 0) {
+                sb.append(" ");
+            }
+            sb.append(Integer.toHexString((int)char1 & 0xff));
             while ((i == 0) && ((char1 & 0xF0) == 0xF0)) {
                 if ((char1 & 0xFF) != 0xF0 && (char1 & 0xFF) != 0xF2) {
                     // save this so we can check for unsolicited
@@ -79,6 +84,10 @@ public class LIUSBEthernetXNetPacketizer extends jmri.jmrix.lenz.liusb.LIUSBXNet
                     lastbyte = char1;
                     //  toss this byte and read the next one
                     char1 = readByteProtected(istream);
+                    if (sb.length() > 0) {
+                        sb.append(" ");
+                    }
+                    sb.append(Integer.toHexString((int)char1 & 0xff));
                 }
 
             }
@@ -92,6 +101,9 @@ public class LIUSBEthernetXNetPacketizer extends jmri.jmrix.lenz.liusb.LIUSBXNet
             if (endOfMessage(msg)) {
                 break;
             }
+        }
+        if (log.isDebugEnabled()) {
+            log.debug("Received message: {}", sb.toString());
         }
     }
 

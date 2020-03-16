@@ -5,6 +5,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.util.Vector;
 import jmri.jmrix.ConnectionStatus;
 import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.XNetConstants;
@@ -56,14 +57,14 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     private int momentaryGroup3 = 0;
     private int momentaryGroup4 = 0;
     private int momentaryGroup5 = 0;
-
+    
     public XNetSimulatorAdapter() {
         setPort(Bundle.getMessage("None"));
         try {
-            PipedOutputStream tempPipeI = new PipedOutputStream();
+            PipedOutputStream tempPipeI = new ImmediatePipeOutputStream();
             pout = new DataOutputStream(tempPipeI);
             inpipe = new DataInputStream(new PipedInputStream(tempPipeI));
-            PipedOutputStream tempPipeO = new PipedOutputStream();
+            PipedOutputStream tempPipeO = new ImmediatePipeOutputStream();
             outpipe = new DataOutputStream(tempPipeO);
             pin = new DataInputStream(new PipedInputStream(tempPipeO));
         } catch (java.io.IOException e) {
@@ -71,6 +72,35 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
             return;
         }
         csStatus = CS_NORMAL_MODE;
+    }
+    
+    /**
+     * Makes a workaround for standard {@link PipedOutputStream} wait.
+     * The {@link PipedInputStream#read()}, in case the receive buffer is
+     * empty at the time of the call, waits for up to 1000ms. 
+     * {@link PipedOutputStream#write(int)} does call <code>sink.receive</code>,
+     * but does not <code>notify()</code> the sink object so that read's
+     * wait() terminates.
+     * <p/>
+     * As a result, the read side of the pipe waits full 1000ms even though data
+     * become available during the wait.
+     * <p/>
+     * The workaround is to simply {@link PipedOutputStream#flush} after write, 
+     * which returns from wait()s immediately.
+     * 
+     */
+    final static class ImmediatePipeOutputStream extends PipedOutputStream {
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            super.write(b, off, len);
+            flush();
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            super.write(b);
+            flush();
+        }
     }
 
     @Override
@@ -116,6 +146,10 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     public void configure() {
         // connect to a packetizing traffic controller
         XNetTrafficController packets = new XNetPacketizer(new LenzCommandStation());
+        configure(packets);
+    }
+    
+    protected void configure(XNetTrafficController packets) {
         packets.connectPort(this);
 
         // start operation
@@ -177,15 +211,19 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
         for (;;) {
             XNetMessage m = readMessage();
             log.debug("Simulator Thread received message {}", m);
-            XNetReply r = generateReply(m);
-            writeReply(r);
+            XNetReply r;
+            
+            while ((r = generateReply(m)) != null) {
+                writeReply(r);
+                m = null;
+            }
             log.debug("Simulator Thread sent Reply {}", r);
         }
     }
 
     // Read one incoming message from the buffer
     // and set outputBufferEmpty to true.
-    private XNetMessage readMessage() {
+    protected XNetMessage readMessage() {
         XNetMessage msg = null;
         try {
             msg = loadChars();
@@ -202,7 +240,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
 
     // This is the heart of the simulation. It translates an
     // incoming XNetMessage into an outgoing XNetReply.
-    private XNetReply generateReply(XNetMessage m) {
+    protected XNetReply generateReply(XNetMessage m) {
         XNetReply reply = new XNetReply();
         switch (m.getElement(0) & 0xff) {
 
@@ -317,6 +355,8 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
                 // LZ100 and LZV100 respond with an ACC_INFO_RESPONSE.
                 // but XpressNet standard says to no response (which causes
                 // the interface to send an OK reply).
+                reply = accReqReply(m);
+                break;
             case XNetConstants.ACC_INFO_REQ:
                 reply = accInfoReply(m);
                 break;
@@ -404,7 +444,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     }
 
     // Create an OK XNetReply message
-    private XNetReply okReply() {
+    protected XNetReply okReply() {
         XNetReply r = new XNetReply();
         r.setOpCode(XNetConstants.LI_MESSAGE_RESPONSE_HEADER);
         r.setElement(1, XNetConstants.LI_MESSAGE_RESPONSE_SEND_SUCCESS);
@@ -414,7 +454,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     }
 
     // Create a "Normal Operations Resumed" message
-    private XNetReply normalOpsReply() {
+    protected XNetReply normalOpsReply() {
         XNetReply r = new XNetReply();
         r.setOpCode(XNetConstants.CS_INFO);
         r.setElement(1, XNetConstants.BC_NORMAL_OPERATIONS);
@@ -424,7 +464,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     }
 
     // Create a broadcast "Everything Off" reply
-    private XNetReply everythingOffReply() {
+    protected XNetReply everythingOffReply() {
         XNetReply r = new XNetReply();
         r.setOpCode(XNetConstants.CS_INFO);
         r.setElement(1, XNetConstants.BC_EVERYTHING_OFF);
@@ -434,7 +474,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     }
 
     // Create a broadcast "Emergency Stop" reply
-    private XNetReply emergencyStopReply() {
+    protected XNetReply emergencyStopReply() {
         XNetReply r = new XNetReply();
         r.setOpCode(XNetConstants.BC_EMERGENCY_STOP);
         r.setElement(1, XNetConstants.BC_EVERYTHING_STOP);
@@ -444,7 +484,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     }
 
     // Create a reply to a request for the XpressNet Version
-    private XNetReply xNetVersionReply() {
+    protected XNetReply xNetVersionReply() {
         XNetReply reply = new XNetReply();
         reply.setOpCode(XNetConstants.CS_SERVICE_MODE_RESPONSE);
         reply.setElement(1, XNetConstants.CS_SOFTWARE_VERSION);
@@ -456,7 +496,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     }
 
     // Create a reply to a request for the Command Station Status
-    private XNetReply csStatusReply() {
+    protected XNetReply csStatusReply() {
         XNetReply reply = new XNetReply();
         reply.setOpCode(XNetConstants.CS_REQUEST_RESPONSE);
         reply.setElement(1, XNetConstants.CS_STATUS_RESPONSE);
@@ -465,9 +505,13 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
         reply.setParity();
         return reply;
     }
+    
+    protected XNetReply accReqReply(XNetMessage m) {
+        return accInfoReply(m);
+    }
 
     // Create a reply to a request for the accessory device Status
-    private XNetReply accInfoReply(XNetMessage m) {
+    protected XNetReply accInfoReply(XNetMessage m) {
         XNetReply reply = new XNetReply();
         reply.setOpCode(XNetConstants.ACC_INFO_RESPONSE);
         reply.setElement(1, m.getElement(1));

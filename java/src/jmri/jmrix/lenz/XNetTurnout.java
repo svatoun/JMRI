@@ -123,7 +123,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
     protected int _mClosed = jmri.Turnout.CLOSED;
 
     protected String _prefix = "X"; // default
-    protected XNetTrafficController tc = null;
+    protected XNetMessageSink tc = null;
 
     public XNetTurnout(String prefix, int pNumber, XNetTrafficController controller) {  // a human-readable turnout number must be specified!
         super(prefix + "T" + pNumber);
@@ -235,6 +235,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
             tc.sendXNetMessage(msg, null);
             sendOffMessage();
         } else {
+            log.debug("Turnout {} sending command {}", getSystemName(), msg);
             tc.sendXNetMessage(msg, this);
             internalState = COMMANDSENT;
         }
@@ -261,13 +262,18 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         // address in for the address. after the message is returned.
         XNetMessage msg = XNetMessage.getFeedbackRequestMsg(mNumber,
                 ((mNumber - 1) % 4) < 2);
+        log.debug("Turnout {} requesting status {}", getSystemName(), msg);
         synchronized (this) {
             internalState = STATUSREQUESTSENT;
         }
         tc.sendXNetMessage(msg, null); //status is returned via the manager.
-
     }
-
+    
+    private int getInternalState() {
+        // return tc.getTaskRegistry().currentState(this);
+        return internalState;
+    }
+    
     @Override
     synchronized public void setInverted(boolean inverted) {
         log.debug("Inverting Turnout State for turnout {}T{}", _prefix, mNumber);
@@ -298,17 +304,19 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         message(l);
         internalState = oldState;
     }
-
+    
     /**
      * Handle an incoming message from the XpressNet.
      */
     @Override
     synchronized public void message(XNetReply l) {
-        log.debug("received message: {}", l);
+        log.debug("Turnnout {}, internal state {}, commanded {}, known {} received message: {}, unsolicited: {}", 
+                getSystemName(), internalState, getCommandedState(), getKnownState(), l, l.isUnsolicited());
         if (internalState == OFFSENT) {
             if (l.isOkMessage() && !l.isUnsolicited()) {
                 /* the command was successfully received */
                 synchronized (this) {
+                    log.debug("turnout: {} ACK after OffMessage: {}, going IDLE", l);
                     newKnownState(getCommandedState());
                     internalState = IDLE;
                 }
@@ -337,6 +345,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
                 // Default is direct mode
                 handleDirectModeFeedback(l);
         }
+        log.debug("Turnout {} processing complete.", getSystemName());
     }
 
     /**
@@ -436,7 +445,8 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
          see if the messages we receive indicate this turnout chagned
          state
          */
-        log.debug("Handle Message for turnout {} in MONITORING feedback mode ", mNumber);
+        log.debug("Handle Message for turnout {} in MONITORING feedback mode, state {} ", mNumber, internalState);
+        log.debug("Commanded: {} known: {} ", getCommandedState(), getKnownState());
         //if(getCommandedState()==getKnownState() && internalState==IDLE) {
         if (internalState == IDLE || internalState == STATUSREQUESTSENT) {
             if (l.isFeedbackBroadcastMessage()) {
@@ -587,12 +597,14 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
             // first off message.
             if (internalState != OFFSENT) {
                 jmri.util.ThreadingUtil.runOnLayoutDelayed( () -> {
+                   log.debug("Turnout {} delay-sending off message: {}", getSystemName(), msg);
                    tc.sendHighPriorityXNetMessage(msg, this);
                 }, 30);
+                log.debug("Turnout {} delaying off message: {}, going OFFSENT", getSystemName(), msg);
                 newKnownState(getCommandedState());
                 internalState = OFFSENT;
                 return;
-            }
+            } 
             //} catch(java.lang.InterruptedException ie) {
             //    log.debug("wait interrupted");
             //}
@@ -771,7 +783,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
                         // This was triggered by feedback on the layout, change
                         // the commanded state to reflect the new Known State
                         if (log.isDebugEnabled()) {
-                            log.debug("propertyChange CommandedState: {}", _turnout.getCommandedState());
+                            log.debug("set commanded state for XNet turnout {} to {}", _turnout.getSystemName(), curKnownState);
                         }
                         _turnout.newCommandedState(curKnownState);
                     } else {
@@ -781,7 +793,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
                         // an off message
                         if (oldKnownState == INCONSISTENT) {
                             if (log.isDebugEnabled()) {
-                                log.debug("propertyChange CommandedState: {}", _turnout.getCommandedState());
+                                log.debug("known inconsistent, commanded state: {}, sending OFF", _turnout.getCommandedState());
                             }
                             _turnout.sendOffMessage();
                         }
