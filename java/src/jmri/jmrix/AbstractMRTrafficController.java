@@ -189,7 +189,11 @@ public abstract class AbstractMRTrafficController {
 
     protected abstract AbstractMRListener pollReplyHandler();
 
-    protected AbstractMRListener mLastSender = null;
+    /**
+     * Sender of the last message. Set exclusively by the transmit thread, read
+     * by receive thread.
+     */
+    protected volatile AbstractMRListener mLastSender = null;
 
     protected volatile int mCurrentMode;
     public static final int NORMALMODE = 1;
@@ -379,6 +383,9 @@ public abstract class AbstractMRTrafficController {
                         checkReplyInDispatch();
                         if (mCurrentState != OKSENDMSGSTATE) {
                             handleTimeout(modeMsg, l);
+                            // FIXME: should probably somehow bail out, as mode
+                            // is still old (switch timed out), but a message for a 
+                            // different mode will be sent ?
                         }
                         mCurrentState = WAITMSGREPLYSTATE;
                     } else {
@@ -388,6 +395,23 @@ public abstract class AbstractMRTrafficController {
                         mCurrentMode = m.getNeededMode();
                     }
                 }
+                // FIXME - check:                
+                // This impl expects that after checkReplyInDispatch the mCurrentState
+                // changes atomically with respect to receive loop processing, but no synchronization
+                // is in place: receiveLoop may preempt and either the reception state will be ignored,
+                // or the receive loop will overwrite state transition computed here.
+                // the sequence of transmitWait-checkReplyInDispatch "somewhat" makes the receive loop
+                // one ITEM to be processed atomically with respect to this method: it will be blocked
+                // until after handleOneIncomingReply resets replyInDispatch - but see comments in there,
+                // the replyInDispatch will be only seen by this thread, if reset *before* xmtRunnable
+                // monitor exit.                
+                // There should be *mutual* exclusion of on xmit item vs. one receive item processing,
+                // probably not through monitors, but other primitive that allows explicit yield when
+                // xmit side needs to wait.
+                // The other side of the exclusion *might* be satisifed by the state machine, but the
+                // WAITMSGREPLYSTATE set above can be seen even before forwardToPort and acted upon while
+                // e.g. mLastSender is not set yet.
+
                 forwardToPort(m, l);
                 // reply expected?
                 if (m.replyExpected()) {
@@ -397,8 +421,11 @@ public abstract class AbstractMRTrafficController {
                     checkReplyInDispatch();
                     if (mCurrentState == WAITMSGREPLYSTATE) {
                         handleTimeout(m, l);
+                        // FIXME - check: probably should reset mCurrentState so receive thread
+                        // can't process 'expected' (but now timed out) replies and intervene.
                     } else if (mCurrentState == AUTORETRYSTATE) {
                         log.info("Message added back to queue: {}", m);
+                        // FIXME - BUG: unsynchronized access to shared queues.
                         msgQueue.addFirst(m);
                         listenerQueue.addFirst(l);
                         synchronized (xmtRunnable) {
@@ -410,6 +437,9 @@ public abstract class AbstractMRTrafficController {
                 } // just continue to the next message from here
             } else {
                 // nothing to do
+                // FIXME: read-and-write with an unknown original state;
+                // if state is one of the ones handled by receive thread, it might
+                // change during this read-and-write. Should be interlocked.
                 if (mCurrentState != IDLESTATE) {
                     log.debug("Setting IDLESTATE");
                     log.debug("Current Mode {}", mCurrentMode);
@@ -419,6 +449,11 @@ public abstract class AbstractMRTrafficController {
                 if (mWaitBeforePoll > waitTimePoll || mCurrentMode == PROGRAMINGMODE) {
                     try {
                         long startTime = Calendar.getInstance().getTimeInMillis();
+                        // PENDING: possible spurious wakeup: If the receive thread receives and dispatches
+                        // data, it eventually notifies xmtRunnable causing this wait to terminate before
+                        // mWaitBeforePoll. But this (idle) wait should only terminate if sendMessage() put
+                        // an item to the normal queue; received messages tied to transmitted data are all served
+                        // already and the received item is an unsolicited data.
                         synchronized (xmtRunnable) {
                             xmtRunnable.wait(mWaitBeforePoll);
                         }
@@ -440,6 +475,8 @@ public abstract class AbstractMRTrafficController {
                         mCurrentState = POLLSTATE; // this prevents other transitions from the IDLESTATE
                     }
                 }
+                // FIXME - check: In the case a message arrives during wait(mWaitBeforePoll), the controller
+                // is in a NOTIFIED state ? Why the timeout message here, if programmerIdle() check is below ?
                 // went around with nothing to do; leave programming state if in it
                 if (mCurrentMode == PROGRAMINGMODE) {
                     log.debug("Timeout - in service mode");
@@ -484,6 +521,8 @@ public abstract class AbstractMRTrafficController {
                     }
                     waitTimePoll = 0;
                 }
+                // FIXME check: no synchronization between this and receive thread
+                // which may finish processing a message and go to NOTIFIED state.
                 // no messages, so back to idle
                 if (mCurrentState == POLLSTATE) {
                     mCurrentState = IDLESTATE;
@@ -495,6 +534,9 @@ public abstract class AbstractMRTrafficController {
     protected void transmitWait(int waitTime, int state, String interruptMessage) {
         // wait() can have spurious wakeup!
         // so we protect by making sure the entire timeout time is used
+        
+        // FIXME - getting millis from Calendar in order to compute a timespan is
+        // stupid. System.currentTimeMillis() is a way faster. 
         long currentTime = Calendar.getInstance().getTimeInMillis();
         long endTime = currentTime + waitTime;
         while (endTime > (currentTime = Calendar.getInstance().getTimeInMillis())) {
@@ -524,6 +566,10 @@ public abstract class AbstractMRTrafficController {
     }
 
     // Dispatch control and timer
+    
+    // FIMXE - check: this variable is checked in different threads, during xmitRunnable monitor
+    // lock - all writes must occur *before xmitRunnable monitor exits. This flag is *the last* to unblock
+    // transmit queue processing / state transitions.
     protected boolean replyInDispatch = false;          // true when reply has been received but dispatch not completed
     private int maxDispatchTime = 0;
     private int warningMessageTime = DISPATCH_WARNING_TIME;
@@ -533,8 +579,18 @@ public abstract class AbstractMRTrafficController {
 
     private void checkReplyInDispatch() {
         int loopCount = 0;
+        // FIXME - minor: as replyInDispatch is set from other thread, this read should
+        // be done while the guard monitor is held. In an unfortunate situation when the
+        // receiver sets it, signals xmtRunnable an extra 100ms is waited: the value obsolete
+        // value will be flushed from this thread's locals upon *enter* of xmtRunnable monitor
+        // inside the loop.Probably no issue in operation, but indicates overal poor understanding
+        // of memory and threading model.
         while (replyInDispatch) {
             try {
+                // FIXME - minor: xmtRunnable is used both to signal an *queued message* and *received message*
+                // when a queued message arrives, this method may be spuriously woken - but there's no
+                // scenario when a queued message would affect wait-on-reply-processing of another (being processed)
+                // message
                 synchronized (xmtRunnable) {
                     xmtRunnable.wait(DISPATCH_WAIT_INTERVAL);
                 }
@@ -564,11 +620,15 @@ public abstract class AbstractMRTrafficController {
      *  @return timeoutFlag
      */
     public boolean hasTimeouts() {
+        // FIXME - possible bug: timeout set from the transmit thread; no synchronization here.
+        // so far the only caller (NceTrafficController) runs in xmit thread as well, but the method is public
         return timeoutFlag;
     }
 
     private boolean timeoutFlag = false;
     private int timeouts = 0;
+    // FIXME - BUG: set by transmit thread that detects timeout. Read by receive thread that
+    // does not synchronize with the write in any way.
     protected boolean flushReceiveChars = false;
 
     protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
@@ -674,6 +734,9 @@ public abstract class AbstractMRTrafficController {
         addTrailerToOutput(msg, len + offset, m);
         // and stream the bytes
         try {
+            // FIXME - bug: ostream may be null-ed by disconnect(), but there's no synchronization
+            // between this method and disconnect(). ostream null may become visible between this check
+            // and the ostream.write(). disconnect() is called from a different thread.
             if (ostream != null) {
                 if (log.isDebugEnabled()) {
                     StringBuilder f = new StringBuilder("formatted message: ");
@@ -692,6 +755,9 @@ public abstract class AbstractMRTrafficController {
                         log.debug("Retry message: {} attempts remaining: {}", m, m.getRetries());
                         m.setRetries(m.getRetries() - 1);
                         try {
+                            // FIXME - BUG: during this wait, up to message timeout, the whole
+                            // TrafficController is locked (its monitor is held). This will block posting
+                            // messages to the transmit queue.
                             synchronized (xmtRunnable) {
                                 xmtRunnable.wait(m.getTimeout());
                             }
@@ -723,7 +789,11 @@ public abstract class AbstractMRTrafficController {
         log.warn("sendMessage: Exception: In {} port warn: ", this.getClass().getName(), e);
     }
 
-    protected boolean connectionError = false;
+    /**
+     * Flags the connection as erroneous. Set to true exclusively by the receive thread. Read
+     * by transmit thread to terminate the loop.
+     */
+    protected volatile boolean connectionError = false;
 
     protected void portWarnTCP(Exception e) {
         log.warn("Exception java net: {}", e);
@@ -838,6 +908,8 @@ public abstract class AbstractMRTrafficController {
      * @return true if ready, false otherwise May throw an Exception.
      */
     public boolean portReadyToSend(AbstractPortController p) {
+        // FIXME - BUG: xmtExeption is send by this thread, but rcvException is set by
+        // receive thread with no sycnhronization at all.
         if (p != null && !xmtException && !rcvException) {
             return true;
         } else {
@@ -1060,6 +1132,11 @@ public abstract class AbstractMRTrafficController {
 
         if (!msg.isUnsolicited()) {
             // effect on transmit:
+            // FIXME - BUG: this switch supposes that there's no intervention between the switch reads the mCurrentState
+            // and a branch produces a new mCurrentState value. For example,
+            // between the fetch from queue and message transmission, the controller is in WAITMSGREPLYSTATE and this thread may
+            // freely reempt and see that state when processing.
+            // The correctness of the state automaton relies on precise message pairing and is therefore very fragile.
             switch (mCurrentState) {
                 case WAITMSGREPLYSTATE: {
                     // check to see if the response was an error message we want
@@ -1127,6 +1204,9 @@ public abstract class AbstractMRTrafficController {
                     break;
                 }
                 default: {
+                    // FIXME bug: should occur inside the monitor to ensure cache propagation.
+                    // will be flushed "at some point", but can be stuck while waiting on a
+                    // next message.
                     replyInDispatch = false;
                     if (allowUnexpectedReply) {
                         log.debug("Allowed unexpected reply received in state: {} was {}", mCurrentState, msg);
@@ -1147,6 +1227,9 @@ public abstract class AbstractMRTrafficController {
         } else {
             log.debug("Unsolicited Message Received {}", msg);
 
+            // FIXME bug: should occur inside the monitor to ensure cache propagation.
+            // will be flushed "at some point", but can be stuck while waiting on a
+            // next message. There's no (explicit) synchronized on code path to the blocking I/O call
             replyInDispatch = false;
         }
     }
