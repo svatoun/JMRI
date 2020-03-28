@@ -41,5 +41,10 @@ public interface XNetListener extends jmri.jmrix.AbstractMRListener {
      */
     public void notifyTimeout(XNetMessage msg);
 
+    /**
+     * Sets the processing phase for the next XNetReply. 
+     * @param phase 
+     */
+    public default void setCommandReplyPhase(XNetConstants.Phase phase) {}
 }
 

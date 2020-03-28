@@ -1,11 +1,13 @@
 package jmri.jmrix.lenz;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
 import jmri.jmrix.AbstractMRReply;
 import jmri.jmrix.AbstractMRTrafficController;
+import jmri.util.ThreadingUtil;
 import net.jcip.annotations.GuardedBy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,12 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
     // PENDING: the field should be probably made private w/ accessor to force proper synchronization for reading.
     protected final HashMap<XNetListener, Integer> mListenerMasks;
 
+    /**
+     * Advisor that pairs replies with the appropriate
+     * XNetListener targets.
+     */
+    protected final MessageQueue messageQueue = new MessageQueue();
+    
     /**
      * Create a new XNetTrafficController.
      * Must provide a LenzCommandStation reference at creation time.
@@ -51,7 +59,24 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
      */
     @Override
     abstract public void sendXNetMessage(XNetMessage m, XNetListener reply);
-
+    
+    public MessageQueue getMessageQueue() {
+        return messageQueue;
+    }
+    
+    @Override
+    protected void notifyMessage(AbstractMRMessage m, AbstractMRListener notMe) {
+        assert ThreadingUtil.isLayoutThread();
+        messageQueue.message((XNetMessage)m);
+        super.notifyMessage(m, notMe);
+    }
+    
+    @Override
+    protected void notifyReply(AbstractMRReply r, AbstractMRListener dest) {
+        messageQueue.message((XNetReply)r);
+        super.notifyReply(r, dest);
+    }
+    
     /**
      * Make connection to existing PortController object.
      */
@@ -270,6 +295,28 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
         }
         if (mCurrentState == IDLESTATE) {
             msg.setUnsolicited();
+        }
+    }
+
+    /**
+     * After reception of a reply, wait for a little time to receive potential
+     * bundled replies to the same message. There MAY be unsolicited broadcasts received
+     * incidentally within the same time window - these must be identified
+     * and appropriately acted upon.
+     * 
+     * @param msg the reply message
+     * @throws IOException 
+     */
+    @Override
+    protected void maybeProcessAdditionalReplies(AbstractMRReply msg) throws IOException {
+        XNetReply xnr = (XNetReply)msg;
+        if (!(xnr.isOkMessage() || xnr.isFeedbackBroadcastMessage())) {
+            return;
+        }
+        AbstractMRReply nextReply;
+        
+        while ((nextReply = receiveChainedReply(30)) != null) {
+            processIncomingMessage(nextReply);
         }
     }
 

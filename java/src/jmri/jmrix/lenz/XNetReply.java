@@ -25,6 +25,8 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
     private static final String SPEED_STEP_MODE_X = "SpeedStepModeX";
     private boolean reallyUnsolicited = true;  // used to override automatic
     // unsolicited by message type.
+    
+    private boolean consumed;
 
     // Create a new reply.
     public XNetReply() {
@@ -75,6 +77,14 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
      */
     public String getOpCodeHex() {
         return "0x" + Integer.toHexString(this.getOpCode());
+    }
+
+    public boolean isConsumed() {
+        return consumed;
+    }
+
+    public void markConsumed() {
+        this.consumed = true;
     }
 
     /**
@@ -386,6 +396,22 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
     public boolean isFeedbackBroadcastMessage() {
         return ((this.getElement(0) & 0xF0) == XNetConstants.BC_FEEDBACK);
     }
+    
+    /**
+     * Returns the number of feedback items in the messages.
+     * For accessory info replies, always returns 1. For broadcast, it returns the
+     * number of feedback pairs. Returns 0 for non-feedback messages.
+     * 
+     * @return number of feedback pair items.
+     */
+    public int getFeedbackMessageItems() {
+        if (isFeedbackMessage()) {
+            return 1;
+        } else if (isFeedbackBroadcastMessage()) {
+            return (this.getElement(0) & 0x0F);
+        }
+        return 0;
+    }
 
     /**
      * Extract the feedback message type from a feedback message this is the
@@ -400,12 +426,8 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
      * </ul>
      */
     public int getFeedbackMessageType() {
-        if (this.isFeedbackMessage()) {
-            int a2 = this.getElement(2);
-            return ((a2 & 0x60) / 32);
-        } else {
-            return -1;
-        }
+        // isFeedbackMessage() is a subset of feedbackBroadcastMessage.
+        return getFeedbackMessageType(1);
     }
 
     /**

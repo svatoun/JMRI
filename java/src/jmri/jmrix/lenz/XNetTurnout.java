@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.annotation.concurrent.GuardedBy;
 import java.util.concurrent.LinkedBlockingQueue;
+import jmri.jmrix.lenz.MessageQueue.CommandItem;
 
 /**
  * Extend jmri.AbstractTurnout for XNet layouts
@@ -238,8 +239,13 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
             tc.sendXNetMessage(msg, null);
             sendOffMessage();
         } else {
+            tc.getMessageQueue().registerCommand(msg, new MessageQueue.AccessoryCommand(msg, this, COMMANDSENT, s));
             queueMessage(msg, COMMANDSENT, this);
         }
+    }
+    
+    synchronized void setInternalState(int newState) {
+        this.internalState = newState;
     }
 
     @Override
@@ -263,6 +269,9 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         // address in for the address. after the message is returned.
         XNetMessage msg = XNetMessage.getFeedbackRequestMsg(mNumber,
                 ((mNumber - 1) % 4) < 2);
+        
+        tc.getMessageQueue().registerCommand(msg, 
+                new MessageQueue.AccessoryCommand(msg, this, STATUSREQUESTSENT, -1));
         queueMessage(msg,IDLE,null); //status is returned via the manager.
 
     }
@@ -570,21 +579,25 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         XNetMessage msg = getOffMessage();
         // Set the known state to the commanded state.
         synchronized (this) {
+            CommandItem cmd = tc.getMessageQueue().getCommandForReply();
+            if (cmd == null || tc.getMessageQueue().getChainedCommand() != null) {
+                return;
+            }
+            CommandItem offCommand = new MessageQueue.AccessoryCommand(msg, this, 
+                    OFFSENT, -1);
+            tc.getMessageQueue().registerCommand(msg, offCommand);
+            cmd.addChainedCommand(offCommand);
+
             // To avoid some of the command station busy
             // messages, add a short delay before sending the
             // first off message.
             if (internalState != OFFSENT) {
                 jmri.util.ThreadingUtil.runOnLayoutDelayed( () ->
                    tc.sendHighPriorityXNetMessage(msg, this), 30);
-                newKnownState(getCommandedState());
-                internalState = OFFSENT;
-                return;
+            } else {
+                tc.sendHighPriorityXNetMessage(msg, this);
             }
-            newKnownState(getCommandedState());
-            internalState = OFFSENT;
         }
-        // Then send the message.
-        tc.sendHighPriorityXNetMessage(msg, this);
     }
 
     protected synchronized XNetMessage getOffMessage(){
@@ -679,6 +692,9 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
      * @return true if motion complete, false otherwise
      */
     private synchronized boolean motionComplete(XNetReply l, int startByte) {
+        // FIXME: why is this method synchronized ?? It reads just immutable mNumber,
+        // reply processing is single-threaded.
+        
         // check validity & addressing
         // if this is an ODD numbered turnout, then we always get the
         // right response from .getTurnoutMsgAddr.  If this is an even
@@ -702,7 +718,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
     /**
      * Internal class to use for listening to state changes.
      */
-    private static class XNetTurnoutStateListener implements java.beans.PropertyChangeListener {
+    private static class XNetTurnoutStateListener implements java.beans.PropertyChangeListener /*, XNetListener */{
 
         XNetTurnout _turnout = null;
 
@@ -801,6 +817,9 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         log.debug("adding message {} to message queue.  Current Internal State {}",m,internalState);
         // put the message in the queue
         RequestMessage msg = new RequestMessage(m, s, l);
+        tc.sendXNetMessage(msg.getMsg(), msg.getListener());
+
+        /*
         try {
             requestList.put(msg);
         } catch (java.lang.InterruptedException ie) {
@@ -810,6 +829,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         if (internalState == IDLE ) {
             sendQueuedMessage();
         }
+        */
     }
 
     /**

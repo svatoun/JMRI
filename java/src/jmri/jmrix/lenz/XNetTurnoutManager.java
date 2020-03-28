@@ -66,7 +66,7 @@ public class XNetTurnoutManager extends jmri.managers.AbstractTurnoutManager imp
         if (log.isDebugEnabled()) {
             log.debug("received message: {}",l);
         }
-        if (l.isFeedbackBroadcastMessage()) {
+        if (!l.isConsumed() && l.isFeedbackBroadcastMessage()) {
             int numDataBytes = l.getElement(0) & 0x0f;
             for (int i = 1; i < numDataBytes; i += 2) {
                 // parse message type

@@ -376,4 +376,77 @@ public final class XNetConstants {
     public static final int LIUSB_BAD_DATA_IN_REQUEST = 0x09;
     public static final int LIUSB_RETRANSMIT_REQUEST = 0x0A;
 
+    /**
+     * Phase of communication with the layout. Each message sent to the layout
+     * starts {@link #QUEUED} or {@link #OFFQUEUED}, becomes {@link #SENT} when it is send to the
+     * device or the network. When an reply arrives that confirms the message reception, 
+     * it becomes {@link #CONFIRMED}.
+     * 
+     * If the operation requires a termination to be send (now just accessory operation),
+     * the message starts as {@link #OFFQUEUED}, transitions through {@link #OFFSENT}
+     * to {@link #OFFCONFIRMED}.
+     * 
+     */
+    public static enum Phase {
+
+        /**
+         * The command is queued.
+         */
+        QUEUED(false),
+        
+        /**
+         * The command was physically sent. No acknowledge
+         * arrived yet.
+         */
+        SENT(true),
+        
+        /**
+         * The command has been confirmed, it did not time out.
+         */
+        CONFIRMED(false),
+        
+        /**
+         * Termination is being sent.
+         */
+        OFFQUEUED(false),
+        
+        /**
+         * Command termination was sent to the layout.
+         */
+        OFFSENT(true),
+        
+        /**
+         * Command termination was sent to the layout.
+         */
+        OFFCONFIRMED(false),
+        
+        /**
+         * The command sequence has been completed.
+         */
+        FINISHED(false),
+        
+        /**
+         * The command has been expired.
+         */
+        EXPIRED(false);
+
+        private final boolean awaitingACK;
+        
+        private Phase(boolean awaitingACK) {
+            this.awaitingACK = awaitingACK;
+        }
+        
+        public boolean isActive() {
+            switch (this) {
+                case QUEUED: case OFFQUEUED: case FINISHED: case EXPIRED:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        public boolean isAwaitingACK() {
+            return awaitingACK;
+        }
+    }
 }
