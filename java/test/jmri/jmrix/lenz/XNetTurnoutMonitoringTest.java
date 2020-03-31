@@ -7,10 +7,13 @@ package jmri.jmrix.lenz;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -241,6 +244,92 @@ public class XNetTurnoutMonitoringTest {
         Thread.currentThread().sleep(4000);
     }
     */
+    
+    public int getCommandedTurnout(XNetMessage msg) {
+        if (msg.getElement(0) != XNetConstants.ACC_OPER_REQ) {
+            return -1;
+        }
+        int h = msg.getElement(1) * 4;
+        int l = (msg.getElement(2) >> 1) & 0x03;
+        return h + l + 1;
+    }
+
+    public int getCommandedOutput(XNetMessage msg) {
+        if (msg.getElement(0) != XNetConstants.ACC_OPER_REQ) {
+            return -1;
+        }
+        return msg.getElement(2) & 0x01;
+    }
+    
+    public boolean getCommandedState(XNetMessage msg) {
+        if (msg.getElement(0) != XNetConstants.ACC_OPER_REQ) {
+            return false;
+        }
+        return (msg.getElement(2) & 0x08) > 0;
+    }
+    @Test
+    public void testDR5000Routetest() throws Exception {
+        initializeLayout(new DR5000TestSimulator());
+        
+        XNetTurnout p1 = (XNetTurnout)xnetManager.provideTurnout("XT11");
+        XNetTurnout p2 = (XNetTurnout)xnetManager.provideTurnout("XT12");
+        XNetTurnout p3 = (XNetTurnout)xnetManager.provideTurnout("XT15");
+        XNetTurnout p4 = (XNetTurnout)xnetManager.provideTurnout("XT16");
+        
+        Map<Integer, Integer> outMap = new HashMap<>();
+        outMap.put(11, 0);
+        outMap.put(12, 1);
+        outMap.put(15, 0);
+        outMap.put(16, 1);
+        
+        class L implements XNetListener {
+            volatile int turnoutCommands;
+            
+            @Override
+            public void message(XNetReply msg) {
+            }
+
+            @Override
+            public void message(XNetMessage msg) {
+                int tnt = getCommandedTurnout(msg);
+                if (tnt == -1) {
+                    return;
+                }
+                assertTrue("Unexpected turnout: " + tnt, outMap.containsKey(tnt));
+                boolean s = getCommandedState(msg);
+                if (s) {
+                    turnoutCommands++;
+                }
+                int o = getCommandedOutput(msg);
+                int eo = outMap.get(tnt);
+                assertEquals("Unexpected output " + o + " " + (s ? "ON" : "OFF") + " for turnout " + tnt, eo, o);
+            }
+
+            @Override
+            public void notifyTimeout(XNetMessage msg) {
+            }
+        }
+        L l = new L();
+        lnis.addXNetListener(XNetTrafficController.ALL, l);
+        
+        Thread.sleep(1000);
+        ThreadingUtil.runOnLayout(() -> {
+            p1.setCommandedState(XNetTurnout.CLOSED);
+        });
+        ThreadingUtil.runOnLayout(() -> {
+            p2.setCommandedState(XNetTurnout.THROWN);
+        });
+        ThreadingUtil.runOnLayout(() -> {
+            p3.setCommandedState(XNetTurnout.CLOSED);
+        });
+        ThreadingUtil.runOnLayout(() -> {
+            p4.setCommandedState(XNetTurnout.THROWN);
+        });
+        
+        Thread.sleep(6000);
+        
+        assertEquals(4, l.turnoutCommands);
+    }
 
     /**
      * Checks that sequence of commands to turnouts will leave turnouts
