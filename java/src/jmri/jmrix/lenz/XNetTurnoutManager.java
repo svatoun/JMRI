@@ -23,6 +23,7 @@ public class XNetTurnoutManager extends jmri.managers.AbstractTurnoutManager imp
         super(memo);
         tc = memo.getXNetTrafficController();
         tc.addXNetListener(XNetInterface.FEEDBACK, this);
+        tc.getQueueManager().setTurnoutManager(this);
     }
 
     protected XNetTrafficController tc = null;
@@ -63,6 +64,10 @@ public class XNetTurnoutManager extends jmri.managers.AbstractTurnoutManager imp
      */
     @Override
     public void message(XNetReply l) {
+        if (l.isConsumed()) {
+            log.debug("message: {} already consumed",l);
+            return;
+        }
         if (log.isDebugEnabled()) {
             log.debug("received message: {}",l);
         }

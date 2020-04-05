@@ -840,6 +840,11 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         }
     }
 
+    @Override
+    public void setMessageState(int msgState) {
+        this.internalState = msgState;
+    }
+    
     private static final Logger log = LoggerFactory.getLogger(XNetTurnout.class);
 
 }

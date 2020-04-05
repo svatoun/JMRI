@@ -184,7 +184,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
 
     // Read one incoming message from the buffer
     // and set outputBufferEmpty to true.
-    private XNetMessage readMessage() {
+    protected XNetMessage readMessage() {
         XNetMessage msg = null;
         try {
             msg = loadChars();

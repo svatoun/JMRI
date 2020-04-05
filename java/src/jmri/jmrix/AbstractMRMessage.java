@@ -14,6 +14,10 @@ import org.slf4j.LoggerFactory;
  * @author Bob Jacobsen Copyright (C) 2003
  */
 abstract public class AbstractMRMessage extends AbstractMessage {
+    /**
+     * True, if the message is a priority one.
+     */
+    private boolean priorityMessage;
 
     /**
      * Create a new AbstractMRMessage instance.
@@ -218,6 +222,25 @@ abstract public class AbstractMRMessage extends AbstractMessage {
         setElement(offset + 3, s.charAt(3));
     }
 
+    /**
+     * Determines, if this message is a priority one.
+     * @return true, if the message should be delivered at a priority.
+     */
+    public boolean isPriorityMessage() {
+        return priorityMessage;
+    }
+
+    /**
+     * Sets the priority message flag. A priority message is enqueued for transmission before all
+     * other non-priority messages. If there are more priority messages in the queue,
+     * this one will be added after all existing ones.
+     * @param priorityMessage 
+     */
+    public <T extends AbstractMRMessage> T asPriority(boolean priorityMessage) {
+        this.priorityMessage = priorityMessage;
+        return (T)this;
+    }
+    
     @Override
     public String toString() {
         String s = "";

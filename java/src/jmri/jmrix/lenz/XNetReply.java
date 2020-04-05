@@ -26,6 +26,37 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
     private boolean reallyUnsolicited = true;  // used to override automatic
     // unsolicited by message type.
 
+    /**
+     * OFF message has been already generated from this message.
+     */
+    public static final int CONSUMED_ACTION = 0x01;
+    
+    /**
+     * The first state component should not be used. This is for example
+     * 1st turnout pair, first turnout state; the first odd turnout.
+     */ 
+    public static final int CONSUMED_STATE_1 = 0x1000;
+
+    /**
+     * The even turnout feedback has been consumed and should not be used.
+     */
+    public static final int CONSUMED_STATE_2 = 0x2000;
+    
+    /**
+     * Last bit that controls whether a state is consumed or not
+     */
+    public static final int CONSUMED_STATE_7_1 = (0x2000 << 7);
+    
+    /**
+     * Records that a message was already processed. 
+     */
+    private int consumed;
+    
+    /**
+     * Original command, which this message responds to. Possibly {@code null}.
+     */
+    private XNetMessage responseTo;
+
     // Create a new reply.
     public XNetReply() {
         super();
@@ -70,6 +101,33 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         }
     }
 
+    /**
+     * Provides access to the message send to command station, which this msg replies to.
+     * The value is {@code null} of unsolicited message; may be also {@code null} for 
+     * replies to other specific messages. Will not be {@code null} for replies to
+     * Accessory Operation Request messages.
+     * <p>
+     * The value is safe to read from {@link XNetListener}s only, and only in within the
+     * context of either XPressnet receive thread, or the Layout thread.
+     * @return the associated outbound message, or {@code null}.
+     */
+    public XNetMessage getResponseTo() {
+        return responseTo;
+    }
+
+    /**
+     * Associates an outbound message for this reply. Do not call this method,
+     * it should be called only by XPressNet infrastructure.
+     * @param responseTo the associated outgoing message.
+     */
+    void setResponseTo(XNetMessage responseTo) {
+        this.responseTo = responseTo;
+    }
+    
+    public int getResponseState() {
+        return (responseTo == null) ? 0 : responseTo.getResponseState();
+    }
+    
     /**
      * Get the opcode as a string in hex format.
      */
@@ -349,6 +407,59 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         }
     }
 
+    /**
+     * Returns the number of feedback items in the messages.
+     * For accessory info replies, always returns 1. For broadcast, it returns the
+     * number of feedback pairs. Returns 0 for non-feedback messages.
+     * 
+     * @return number of feedback pair items.
+     */
+    public int getFeedbackMessageItems() {
+        if (isFeedbackMessage()) {
+            return 1;
+        } else if (isFeedbackBroadcastMessage()) {
+            return (this.getElement(0) & 0x0F);
+        }
+        return 0;
+    }
+
+    /**
+     * Determines if the message has been already processed / consumed. Consumed messages
+     * should be processed only with a great care. They should be mostly ignored,
+     * or used just for informative purposes.
+     * @return true, if the message was consumed.
+     */
+    public boolean isConsumed() {
+        return consumed > 0;
+    }
+    
+    /**
+     * Checks what part of the message were consumed. The selector values are
+     * message-specific.
+     * @param mask selector
+     * @return true, if the message was consumed.
+     */
+    public boolean isConsumed(int mask) {
+        return (consumed & mask) > 0;
+    }
+
+    /**
+     * Marks the reply as consumed.
+     */
+    public void markConsumed() {
+        this.consumed = 0xff;
+    }
+    
+    /**
+     * Marks certain parts of message as consumed. The selector values are
+     * message-specific, must be within range 0..255.
+     * @param selector  
+     */
+    public void markConsumed(int selector) {
+        assert selector >= 0 && selector < 0x100;
+        this.consumed |= selector;
+    }
+    
     /**
      * If this is a feedback broadcast message and the specified startByte is
      * the address byte of an address byte/data byte pair for a feedback

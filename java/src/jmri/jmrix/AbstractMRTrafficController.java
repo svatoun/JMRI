@@ -317,8 +317,22 @@ public abstract class AbstractMRTrafficController {
      * @param reply the Listener sending the message, often provided as 'this'
      */
     protected synchronized void sendMessage(AbstractMRMessage m, AbstractMRListener reply) {
-        msgQueue.addLast(m);
-        listenerQueue.addLast(reply);
+        // priority message is always inserted at start, after all already
+        // queued priority messages.
+        if (m.isPriorityMessage()) {
+            int i;
+            for (i = 0; i < msgQueue.size(); i++) {
+                AbstractMRMessage check = msgQueue.get(i);
+                if (!check.isPriorityMessage()) {
+                    break;
+                }
+            }
+            msgQueue.add(i, m);
+            listenerQueue.add(i, reply);
+        } else {
+            msgQueue.addLast(m);
+            listenerQueue.addLast(reply);
+        }
         synchronized (xmtRunnable) {
             if (mCurrentState == IDLESTATE) {
                 mCurrentState = NOTIFIEDSTATE;
@@ -328,6 +342,28 @@ public abstract class AbstractMRTrafficController {
         if (m != null) {
             log.debug("just notified transmit thread with message {}", m);
         }
+    }
+    
+    /**
+     * Takes one message from the head of the queue.
+     * Overridable for testing purposes.
+     * @param ll out: listener reference associated with the message
+     * @return the message, or {@code null} if the queue is empty.
+     */
+    protected AbstractMRMessage takeMessageToTransmit(AbstractMRListener[] ll) {
+        AbstractMRMessage m = null;
+        synchronized (this) {
+            if (!msgQueue.isEmpty()) {
+                // yes, something to do
+                m = msgQueue.getFirst();
+                msgQueue.removeFirst();
+                ll[0] = listenerQueue.getFirst();
+                listenerQueue.removeFirst();
+                mCurrentState = WAITMSGREPLYSTATE;
+                log.debug("transmit loop has something to do: {}", m);
+            }  // release lock here to proceed in parallel
+        }
+        return m;
     }
 
     /**
@@ -341,17 +377,9 @@ public abstract class AbstractMRTrafficController {
             AbstractMRMessage m = null;
             AbstractMRListener l = null;
             // check for something to do
-            synchronized (this) {
-                if (!msgQueue.isEmpty()) {
-                    // yes, something to do
-                    m = msgQueue.getFirst();
-                    msgQueue.removeFirst();
-                    l = listenerQueue.getFirst();
-                    listenerQueue.removeFirst();
-                    mCurrentState = WAITMSGREPLYSTATE;
-                    log.debug("transmit loop has something to do: {}", m);
-                }  // release lock here to proceed in parallel
-            }
+            AbstractMRListener[] arr = new AbstractMRListener[1];
+            m = takeMessageToTransmit(arr);
+            l = arr[0];
             // if a message has been extracted, process it
             if (m != null) {
                 // check for need to change mode
@@ -425,12 +453,8 @@ public abstract class AbstractMRTrafficController {
                         // can't process 'expected' (but now timed out) replies and intervene.
                     } else if (mCurrentState == AUTORETRYSTATE) {
                         log.info("Message added back to queue: {}", m);
-                        // FIXME - BUG: unsynchronized access to shared queues.
-                        msgQueue.addFirst(m);
-                        listenerQueue.addFirst(l);
-                        synchronized (xmtRunnable) {
-                            mCurrentState = IDLESTATE;
-                        }
+                        // XXX: check: the new state is NOTIFIED instead of idlesate.
+                        sendMessage(m, l);
                     } else {
                         resetTimeout(m);
                     }
@@ -693,7 +717,31 @@ public abstract class AbstractMRTrafficController {
     }
 
     protected boolean xmtException = false;
+    
+    /**
+     * Dispatches messages to listeners, possibly asynchronously. Overridable
+     * so that a subclass can extend provide atomic actions along with posting
+     * message dispatch into the Layout thread.
+     * @param m message to dispatch
+     * @param replyTo listener to inform about reply to the message
+     */
+    protected void dispatchMessage(AbstractMRMessage m, AbstractMRListener replyTo) {
+        // remember who sent this
+        mLastSender = replyTo;
 
+        // forward the message to the registered recipients,
+        // which includes the communications monitor, except the sender.
+        // Schedule notification via the Swing event queue to ensure order
+        Runnable r = new XmtNotifier(m, mLastSender, this);
+        SwingUtilities.invokeLater(r);
+    }
+    
+    protected void writeToStream(OutputStream os, byte[] msg, AbstractMRMessage m, AbstractMRListener reply) throws IOException {
+        os.write(msg);
+        os.flush();
+        log.debug("written, msg timeout: {} mSec", m.getTimeout());
+    }
+    
     /**
      * Actually transmit the next message to the port.
      * @see #sendMessage(AbstractMRMessage, AbstractMRListener)
@@ -703,17 +751,20 @@ public abstract class AbstractMRTrafficController {
      */
     @SuppressFBWarnings(value = {"TLW_TWO_LOCK_WAIT"},
             justification = "Two locks needed for synchronization here, this is OK")
-    protected synchronized void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
+    protected void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
         log.debug("forwardToPort message: [{}]", m);
-        // remember who sent this
-        mLastSender = reply;
-
-        // forward the message to the registered recipients,
-        // which includes the communications monitor, except the sender.
-        // Schedule notification via the Swing event queue to ensure order
-        Runnable r = new XmtNotifier(m, mLastSender, this);
-        SwingUtilities.invokeLater(r);
-
+        
+        // stabilize a reference to ostream, so it does not become null
+        // during this method's execution.
+        OutputStream os;
+        synchronized (this) {
+            dispatchMessage(m, reply);
+            os = ostream;
+        }
+        if (os == null) {
+            connectionWarn();
+            return;
+        }
         // stream to port in single write, as that's needed by serial
         int byteLength = lengthOfByteStream(m);
         byte[]  msg= new byte[byteLength];
@@ -734,44 +785,34 @@ public abstract class AbstractMRTrafficController {
         addTrailerToOutput(msg, len + offset, m);
         // and stream the bytes
         try {
-            // FIXME - bug: ostream may be null-ed by disconnect(), but there's no synchronization
-            // between this method and disconnect(). ostream null may become visible between this check
-            // and the ostream.write(). disconnect() is called from a different thread.
-            if (ostream != null) {
-                if (log.isDebugEnabled()) {
-                    StringBuilder f = new StringBuilder("formatted message: ");
-                    for (int i = 0; i < msg.length; i++) {
-                        f.append(String.format("%02X ",0xFF & msg[i]));
-                    }
-                    log.debug(f.toString());
+            if (log.isDebugEnabled()) {
+                StringBuilder f = new StringBuilder("formatted message: ");
+                for (int i = 0; i < msg.length; i++) {
+                    f.append(String.format("%02X ",0xFF & msg[i]));
                 }
-                while (m.getRetries() >= 0) {
-                    if (portReadyToSend(controller)) {
-                        ostream.write(msg);
-                        ostream.flush();
-                        log.debug("written, msg timeout: {} mSec", m.getTimeout());
-                        break;
-                    } else if (m.getRetries() >= 0) {
-                        log.debug("Retry message: {} attempts remaining: {}", m, m.getRetries());
-                        m.setRetries(m.getRetries() - 1);
-                        try {
-                            // FIXME - BUG: during this wait, up to message timeout, the whole
-                            // TrafficController is locked (its monitor is held). This will block posting
-                            // messages to the transmit queue.
-                            synchronized (xmtRunnable) {
-                                xmtRunnable.wait(m.getTimeout());
-                            }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt(); // retain if needed later
-                            log.error("retry wait interrupted");
+                log.debug(f.toString());
+            }
+            while (m.getRetries() >= 0) {
+                if (portReadyToSend(controller)) {
+                    writeToStream(os, msg, m, reply);
+                    break;
+                } else if (m.getRetries() >= 0) {
+                    log.debug("Retry message: {} attempts remaining: {}", m, m.getRetries());
+                    m.setRetries(m.getRetries() - 1);
+                    try {
+                        // FIXME - BUG: during this wait, up to message timeout, the whole
+                        // TrafficController is locked (its monitor is held). This will block posting
+                        // messages to the transmit queue.
+                        synchronized (xmtRunnable) {
+                            xmtRunnable.wait(m.getTimeout());
                         }
-                    } else {
-                        log.warn("sendMessage: port not ready for data sending: {}", Arrays.toString(msg));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt(); // retain if needed later
+                        log.error("retry wait interrupted");
                     }
+                } else {
+                    log.warn("sendMessage: port not ready for data sending: {}", Arrays.toString(msg));
                 }
-            } else {  // ostream is null
-                // no stream connected
-                connectionWarn();
             }
         } catch (IOException | RuntimeException e) {
             // TODO Currently there's no port recovery if an exception occurs
@@ -1075,8 +1116,19 @@ public abstract class AbstractMRTrafficController {
         return true;
     }
 
-    private int retransmitCount = 0;
+    protected int retransmitCount = 0;
 
+    /**
+     * Distributes reply among the listeners, and potentially sender. Overridable
+     * for possible extension with pre/post actions.
+     * 
+     * @param reply the reply to distribute
+     * @param lastSender the sender that should be targetted by the reply; null for no target
+     * @param r Runnable to execute in the layout thread, which will actually distribute the message
+     */
+    protected void distributeReply(AbstractMRReply reply, AbstractMRListener lastSender, Runnable r) {
+        distributeReply(r);
+    }
     /**
      * Executes a reply distribution action on the appropriate thread for JMRI.
      * @param r a runnable typically encapsulating a MRReply and the iteration code needed to
@@ -1098,7 +1150,7 @@ public abstract class AbstractMRTrafficController {
         }
         log.debug("dispatch thread invoked");
     }
-
+    
     /**
      * Handle each reply when complete.
      * <p>
@@ -1128,7 +1180,8 @@ public abstract class AbstractMRTrafficController {
         // which includes the communications monitor
         // return a notification via the Swing event queue to ensure proper thread
         Runnable r = new RcvNotifier(msg, mLastSender, this);
-        distributeReply(r);
+        
+        distributeReply(msg, mLastSender, r);
 
         if (!msg.isUnsolicited()) {
             // effect on transmit:

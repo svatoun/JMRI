@@ -8,20 +8,16 @@ package jmri.jmrix.lenz;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.logging.Level;
 import jmri.InstanceManager;
 import jmri.Turnout;
 import jmri.TurnoutManager;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
-import jmri.jmrix.lenz.xnetsimulator.XNetSimulatorAdapter;
+import jmri.jmrix.lenz.XNetTestSimulator.DR5000;
+import jmri.jmrix.lenz.XNetTestSimulator.NanoXGenLi;
 import jmri.util.JUnitUtil;
 import jmri.util.Log4JUtil;
 import jmri.util.ThreadingUtil;
@@ -43,7 +39,7 @@ public class XNetTurnoutMonitoringTest {
 
     protected Turnout t = null;	// holds object under test; set by setUp()
     
-    protected TurnoutTestSimulator testAdapter;
+    protected XNetTestSimulator testAdapter;
     
     private Consumer<AbstractMRMessage> timeoutCallback;
     
@@ -65,7 +61,7 @@ public class XNetTurnoutMonitoringTest {
         jmri.InstanceManager.store(new jmri.NamedBeanHandleManager(), jmri.NamedBeanHandleManager.class);
     }
     
-    private void initializeLayout(TurnoutTestSimulator adapter) {
+    private void initializeLayout(XNetTestSimulator adapter) {
         testAdapter = adapter;
         lnis = new XNetPacketizer(new LenzCommandStation()) {
             protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
@@ -102,9 +98,9 @@ public class XNetTurnoutMonitoringTest {
      * 
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testGenLiSwitchTimeout() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new NanoXGenLi());
         
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
 
@@ -155,9 +151,9 @@ public class XNetTurnoutMonitoringTest {
      * 
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testGenLiIncorrectTurnoutState() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
         Thread.currentThread().sleep(1000);
@@ -202,9 +198,9 @@ public class XNetTurnoutMonitoringTest {
      * (i. e. startup script), the turnout's known state should match the commanded state.
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testFeedbackEvenTurnoutShortAfterBoot() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
         ThreadingUtil.runOnLayout(() -> {
@@ -249,22 +245,24 @@ public class XNetTurnoutMonitoringTest {
      */
     @Test
     public void testDR5000TurnoutMessage() throws Exception {
-        initializeLayout(new DR5000TestSimulator());
+        initializeLayout(new DR5000());
         
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
+        t.setCommandedState(Turnout.CLOSED);
+        t2.setCommandedState(Turnout.THROWN);
         
         Thread.currentThread().sleep(3000);
         
-        assertEquals(Turnout.CLOSED, t2.getCommandedState());
+//        assertEquals(Turnout.CLOSED, t2.getCommandedState());
         
         log.debug("----------------------------------------------------");
         ThreadingUtil.runOnLayout(() -> {
             t.setCommandedState(Turnout.THROWN);
-            t2.setCommandedState(Turnout.THROWN);
+            t2.setCommandedState(Turnout.CLOSED);
         });
         log.debug("----------------------------------------------------");
-        Thread.currentThread().sleep(10000);
+        Thread.currentThread().sleep(1000000);
         
         System.err.println("*** Commanded state for " + t2.getSystemName() + ": " + t2.getCommandedState());
         assertEquals(Turnout.THROWN, t2.getCommandedState());
@@ -275,9 +273,9 @@ public class XNetTurnoutMonitoringTest {
      * when multiple active messages are in the transmit queue.
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testMultipleActiveMessages() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
         t.setCommandedState(Turnout.CLOSED);
@@ -308,185 +306,5 @@ public class XNetTurnoutMonitoringTest {
         assertFalse("Timeout must not occur", timeoutReached);
     }
     
-    static class GenLiTestSimulator extends TurnoutTestSimulator {
-        protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
-            if (state) {
-                return accInfoReply(address);
-            } else {
-                return okReply();
-            }
-        }
-    }
-    
-    static class DR5000TestSimulator extends TurnoutTestSimulator {
-        @Override
-        protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
-            if (state) {
-                addReply(accInfoReply(address));
-                return okReply();
-            } else {
-                return okReply();
-            }
-        }
-
-        @Override
-        protected int getTurnoutFeedbackType() {
-            return 0;
-        }
-    }
-    
-    static abstract class TurnoutTestSimulator extends XNetSimulatorAdapter {
-        private List<XNetReply>   replyBuffer = new ArrayList<>();
-        private List<XNetReply>   additionalReplies = new ArrayList<>();
-        
-        private BitSet  accessoryState = new BitSet(1024);
-        
-        volatile boolean    limitReplies;
-        private Semaphore   repliesAllowed = new Semaphore(0);
-
-        private void insertAdditionalReplies() {
-            replyBuffer.addAll(additionalReplies);
-            additionalReplies.clear();
-        }
-        
-        protected XNetReply addReply(XNetReply r) {
-            additionalReplies.add(r);
-            return r;
-        }
-        
-        public void configure(XNetTrafficController ctrls) {
-            super.configure(ctrls);
-        }
-        
-        private void maybeWaitBeforeReply(XNetReply reply) {
-            if (!limitReplies) {
-                return;
-            }
-            if (reply instanceof PrimaryXNetReply) {
-                try {
-                    repliesAllowed.acquire();
-                } catch (InterruptedException ex) {
-                    java.util.logging.Logger.getLogger(XNetTurnoutMonitoringTest.class.getName()).log(Level.SEVERE, null, ex);
-                }
-
-            }
-        }
-        
-        /**
-         * Serves the bateched items through FIFO. The test class may generate
-         * additional replies, which are ordered after the primary one.
-         * 
-         * @param m XNet message instance
-         * @return the current reply
-         */
-        @Override
-        protected XNetReply generateReply(XNetMessage m) {
-            insertAdditionalReplies();
-            if (m == null) {
-                if (replyBuffer.isEmpty()) {
-                    return null;
-                }
-                XNetReply r = replyBuffer.remove(0);
-                maybeWaitBeforeReply(r);
-                System.err.println("Returning reply: " + r + " ... " + r.toMonitorString());
-                return r;
-            }
-            XNetReply reply  = super.generateReply(m);
-            if (isPrimaryReply(m)) {
-                reply = new PrimaryXNetReply(reply);
-            }
-            if (replyBuffer.isEmpty()) {
-                insertAdditionalReplies();
-                maybeWaitBeforeReply(reply);
-                System.err.println("Returning reply: " + reply + " ... " + reply.toMonitorString());
-                return reply;
-            }
-            replyBuffer.add(reply);
-            insertAdditionalReplies();
-            XNetReply r = replyBuffer.remove(0);
-            maybeWaitBeforeReply(reply);
-            return r;
-        }
-        
-        protected boolean isPrimaryReply(XNetMessage msg) {
-            return msg.getElement(0)== XNetConstants.ACC_OPER_REQ;
-        }
-
-        @Override
-        protected XNetReply accReqReply(XNetMessage m) {
-            int baseaddress = m.getElement(1);
-            int subaddress = ((m.getElement(2) & 0x06) >> 1);
-            int address = (baseaddress * 4) + subaddress + 1;
-            int output = (m.getElement(2) & 0x01);
-            boolean on = ((m.getElement(2) & 0x08)) == 0x08;
-            if (on) {
-                accessoryState.set(address, output != 0);
-            }
-            System.err.println(m + " ..." + m.toMonitorString());
-            return generateAccRequestReply(address, output, on);
-        }
-        
-        protected abstract XNetReply generateAccRequestReply(int address, int output, boolean state);
-
-        protected XNetReply accInfoReply(int dccTurnoutAddress) {
-            dccTurnoutAddress--;
-            int baseAddress = dccTurnoutAddress / 4;
-            boolean upperNibble = (dccTurnoutAddress % 4 >= 2);
-            return accInfoReply(true, baseAddress, upperNibble);
-        }
-
-        @Override
-        protected XNetReply accInfoReply(XNetMessage m) {
-            boolean nibble = (m.getElement(2) & 0x01) == 0x01;
-            int ba = m.getElement(1);
-            return accInfoReply(false, ba, nibble);
-        }
-        
-        /**
-         * Return the turnout feedback type.
-         * <ul>
-         * <li>0x00 - turnout without feedback, ie DR5000
-         * <li>0x01 - turnout with feedback, ie NanoX
-         * <li>0x10 - feedback module
-         * </ul>
-         * @return 
-         */
-        protected int getTurnoutFeedbackType() {
-            return 0x01;
-        }
-        
-        XNetReply accInfoReply(boolean broadcast, int baseAddress, boolean nibble) {
-            XNetReply r = new XNetReply();
-            r.setOpCode(broadcast ? XNetConstants.ACC_INFO_RESPONSE : XNetConstants.ACC_INFO_RESPONSE);
-            r.setElement(1, baseAddress);
-            
-            int nibbleVal = 0;
-            
-            int a = baseAddress * 4 + 1;
-            if (nibble) {
-                a += 2;
-            }
-            boolean state = accessoryState.get(a++);
-            int zbits = state ? 0b10 : 0b01;
-            
-            nibbleVal |= zbits;
-            
-            state = accessoryState.get(a++);
-            zbits = state ? 0b10 : 0b01;
-            
-            nibbleVal |= (zbits << 2);
-            
-            r.setElement(2, 
-                    0       << 7 |  // turnout movement completed
-                    getTurnoutFeedbackType()    << 5 |  // two bits: accessory without feedback
-                    (nibble ? 1 : 0) << 4 | // upper / lower nibble
-                    nibbleVal & 0x0f
-            );
-            r.setElement(3, 0);
-            r.setParity();
-            return r;
-        }
-        
-    }
 
 }

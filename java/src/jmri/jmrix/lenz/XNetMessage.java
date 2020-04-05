@@ -38,7 +38,109 @@ public class XNetMessage extends jmri.jmrix.AbstractMRMessage implements Seriali
      interval of 500 milliseconds during normal communications */
     protected static final int XNetProgrammingTimeout = 10000;
     private static int XNetMessageTimeout = 5000;
-
+    
+    /**
+     * Describes phase of processing this message. The message should transition
+     * from CREATED to either FINISHED or EXPIRED through all the intermediate
+     * phases. The exception are
+     * <ul>
+     * <li>If a message is rejected (station busy), it falls back to QUEUED.
+     * <li>If a message is discarded, it will transition to EXPIRED from any state
+     * except FINISHED
+     * </ul>
+     * A message may be CONFIRMED, but not yet FINISHED, if there are more replies
+     * possible to that message. 
+     * <p>
+     * FINISHED or EXPIRED messages are never sent by the transmit loop.
+     */
+    public static enum Phase {
+        /**
+         * The message was created, but not passed to transmit thread.
+         */
+        CREATED, 
+        /**
+         * The message entered transmission queue.
+         */
+        QUEUED, 
+        
+        /**
+         * The message has been (is being) sent to XpressNet interface
+         */
+        SENT, 
+        
+        /**
+         * A confirmation has been received for the message.
+         */
+        CONFIRMED, 
+        
+        /**
+         * Confirmed repeatedly, by a different message
+         */
+        CONFIRMED_AGAIN, 
+        
+        /**
+         * The message has completed processing.
+         */
+        FINISHED,
+        
+        /**
+         * The message has expired with no confirmation.
+         */
+        EXPIRED,
+    }
+    
+    /**
+     * Diagnostics: the time the message was created.
+     */
+    private final long timeCreated = System.currentTimeMillis();
+    
+    /**
+     * Diagnostics: The time the message was posted into the transmit queue.
+     */
+    private long timeQueued;
+    
+    /**
+     * The time the message was really sent.
+     */
+    private long timeSent;
+    
+    /**
+     * Diagnostics: The time the message was first confirmed.
+     */
+    private long timeConfirmed;
+    
+    /**
+     * The current processing phase.
+     */
+    private volatile Phase phase = Phase.CREATED;
+    
+    /**
+     * Asks to send the message delayed.
+     */
+    private volatile int delay;
+    
+    /**
+     * The associated XpressNet action. May be {@code null} for
+     * messages which do not require special handling.
+     */
+    private volatile XAction action;
+    
+    /**
+     * Number of OK messages received.
+     */
+    private int okReceived;
+    
+    /**
+     * Number of OK messages received so far.
+     */
+    private int stateReceived;
+    
+    /**
+     * Client's state that should be set up during
+     * this message's response processing.
+     */
+    private int responseState;
+    
     /**
      * Create a new object, representing a specific-length message.
      *
@@ -56,6 +158,119 @@ public class XNetMessage extends jmri.jmrix.AbstractMRMessage implements Seriali
         setRetries(_nRetries);
         setTimeout(XNetMessageTimeout);
         _nDataChars = len;
+    }
+
+    synchronized void attachAction(XAction command) {
+        if (this.action != null) {
+            throw new IllegalArgumentException();
+        }
+        this.action = command;
+    }
+    
+    public XAction getAction() {
+        return this.action;
+    }
+
+    /**
+     * @return Time the message was first queued into the transmit queue. Unix time.
+     */
+    public long getTimeQueued() {
+        return timeQueued;
+    }
+
+    /**
+     * @return Time the message was sent into the interface
+     */
+    public long getTimeSent() {
+        return timeSent;
+    }
+
+    /**
+     * @return Time the message was confirmed.
+     */
+    public long getTimeConfirmed() {
+        return timeConfirmed;
+    }
+    
+    /**
+     * @return true, if the msssage is delayed.
+     */
+    public boolean isDelayed() {
+        return delay != 0;
+    }
+
+    /**
+     * Gets the delay interval, in ms.
+     * @return 
+     */
+    public int getDelay() {
+        return delay;
+    }
+
+    public XNetMessage withDelay(int delay) {
+        this.delay = delay;
+        return this;
+    }
+
+    public int getOkReceived() {
+        return okReceived;
+    }
+
+    public int getStateReceived() {
+        return stateReceived;
+    }
+    
+    public void addOkMessage() {
+        okReceived++;
+    }
+    
+    public void addStateMessage() {
+        stateReceived++;
+    }
+    
+    /**
+     * Transitions the message to a next phase.
+     * @param toPhase the new phase.
+     */
+    synchronized boolean toPhase(Phase toPhase) {
+        if (toPhase == Phase.CONFIRMED) {
+            if (this.phase == Phase.CONFIRMED) {
+               toPhase = Phase.CONFIRMED_AGAIN;
+            }
+        }
+        if (this.phase == toPhase) {
+            return false;
+        }
+        log.debug("Message {} toPhase: {}", this, toPhase);
+        if (toPhase == Phase.EXPIRED) {
+            assert this.phase.ordinal() > Phase.QUEUED.ordinal() && this.phase != Phase.FINISHED;
+        } else {
+            if (!(phase == Phase.SENT && toPhase == Phase.QUEUED)) {
+                assert this.phase.ordinal() + 1 == toPhase.ordinal();
+            }
+        }
+        this.phase = toPhase;
+        
+        long t = System.currentTimeMillis();
+        switch (phase) {
+            case QUEUED:    this.timeQueued = t; break;
+            case SENT:      this.timeSent = t; break;
+            case CONFIRMED: this.timeConfirmed = t; break;
+        }
+        return true;
+    }
+    
+    public Phase getPhase() {
+        return phase;
+    }
+    
+    public XNetMessage withResponseState(int responseState) {
+        this.responseState = responseState;
+        return this;
+    }
+
+    public int getResponseState() {
+        return responseState;
     }
 
     /**
