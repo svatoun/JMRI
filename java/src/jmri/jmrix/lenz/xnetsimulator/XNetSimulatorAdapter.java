@@ -196,7 +196,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
 
     // Read one incoming message from the buffer
     // and set outputBufferEmpty to true.
-    private XNetMessage readMessage() {
+    protected XNetMessage readMessage() {
         XNetMessage msg = null;
         try {
             msg = loadChars();
@@ -601,6 +601,10 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
         boolean upperNibble = dccTurnoutAddress % 4 >= 2;
         return accInfoReply(baseAddress, upperNibble);
     }
+    
+    protected int lengthOfByteStream(XNetReply reply) {
+        return (reply.getElement(0) & 0x0f) + 2;
+    }
 
     protected XNetReply accReqReply(XNetMessage m) {
         int baseaddress = m.getElement(1);
@@ -616,17 +620,37 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
         return generateAccRequestReply(address, output, on, oldState);
     }
     
+    protected int addHeaderToOutput(byte[] msg, XNetReply m) {
+        return 0;
+    }
+
+    /**
+     * Add trailer to the outgoing byte stream.
+     *
+     * @param msg    the output byte stream
+     * @param offset the first byte not yet used
+     */
+    protected void addTrailerToOutput(byte[] msg, int offset, XNetReply m) {
+        if (!m.isBinary()) {
+            msg[offset] = 0x0d;
+        }
+    }
+
     private void writeReply(XNetReply r) {
         int i;
-        int len = (r.getElement(0) & 0x0f) + 2;  // opCode+Nbytes+ECC
-        for (i = 0; i < len; i++) {
-            try {
-                outpipe.writeByte((byte) r.getElement(i));
-            } catch (java.io.IOException ex) {
-                ConnectionStatus.instance().setConnectionState(
-                        this.getSystemConnectionMemo().getUserName(),
-                        this.getCurrentPortName(), ConnectionStatus.CONNECTION_DOWN);
-            }
+        int len = lengthOfByteStream(r);  // opCode+Nbytes+ECC
+        int rawLen = (r.getElement(0) & 0x0f) + 2;
+        byte[] bytes = new byte[len];
+        int offset = addHeaderToOutput(bytes, r);
+        for (i = 0; i < rawLen; i++) {
+            bytes[i + offset] = (byte)r.getElement(i);
+        }
+        try {
+            outpipe.write(bytes, 0, bytes.length);
+        } catch (java.io.IOException ex) {
+            ConnectionStatus.instance().setConnectionState(
+                    this.getSystemConnectionMemo().getUserName(),
+                    this.getCurrentPortName(), ConnectionStatus.CONNECTION_DOWN);
         }
     }
 
@@ -652,6 +676,10 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
             msg.setElement(i, char1 & 0xFF);
         }
         return msg;
+    }
+    
+    protected byte readByteProtected() throws java.io.IOException {
+        return readByteProtected(inpipe);
     }
 
     /**

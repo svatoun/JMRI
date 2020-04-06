@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,7 @@ import jmri.Turnout;
 import jmri.TurnoutManager;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
+import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
 import jmri.jmrix.lenz.xnetsimulator.XNetSimulatorAdapter;
 import jmri.util.JUnitUtil;
 import jmri.util.Log4JUtil;
@@ -46,7 +48,7 @@ public class XNetTurnoutMonitoringTest {
 
     protected Turnout t = null;	// holds object under test; set by setUp()
     
-    protected TurnoutTestSimulator testAdapter;
+    protected XNetTestSimulator testAdapter;
     
     private Consumer<AbstractMRMessage> timeoutCallback;
     
@@ -68,16 +70,38 @@ public class XNetTurnoutMonitoringTest {
         jmri.InstanceManager.store(new jmri.NamedBeanHandleManager(), jmri.NamedBeanHandleManager.class);
     }
     
-    private void initializeLayout(TurnoutTestSimulator adapter) {
-        testAdapter = adapter;
-        lnis = new XNetPacketizer(new LenzCommandStation()) {
-            protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
-                super.handleTimeout(msg, l);
-                if (timeoutCallback != null) {
-                    timeoutCallback.accept(msg);
-                }
+    class SerialPacketizer extends XNetPacketizer {
+        SerialPacketizer() {
+            super(new LenzCommandStation());
+        }
+        
+        protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
+            super.handleTimeout(msg, l);
+            if (timeoutCallback != null) {
+                timeoutCallback.accept(msg);
             }
-        };
+        }
+    }
+    
+    class USBPacketizer extends LIUSBXNetPacketizer {
+        USBPacketizer() {
+            super(new LenzCommandStation());
+        }
+        
+        protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
+            super.handleTimeout(msg, l);
+            if (timeoutCallback != null) {
+                timeoutCallback.accept(msg);
+            }
+        }
+    }
+    private void initializeLayout(XNetTestSimulator adapter) {
+        initializeLayout(adapter, new SerialPacketizer());
+    }
+    
+    private void initializeLayout(XNetTestSimulator adapter, XNetPacketizer packetizer) {
+        testAdapter = adapter;
+        lnis = packetizer;
         testAdapter.configure(lnis);
         
         xnetManager = (XNetTurnoutManager)InstanceManager.getDefault().getInstance(XNetSystemConnectionMemo.class).getTurnoutManager();
@@ -107,7 +131,7 @@ public class XNetTurnoutMonitoringTest {
      */
     @Test
     public void testGenLiSwitchTimeout() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new XNetTestSimulator.NanoXGenLi());
         
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
 
@@ -160,7 +184,7 @@ public class XNetTurnoutMonitoringTest {
      */
     @Test
     public void testGenLiIncorrectTurnoutState() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new XNetTestSimulator.NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
         Thread.currentThread().sleep(1000);
@@ -195,6 +219,10 @@ public class XNetTurnoutMonitoringTest {
 
         public PrimaryXNetReply(XNetReply reply) {
             super(reply);
+            reply.resetUnsolicited();
+            if (reply.isUnsolicited()) {
+                setUnsolicited();
+            }
         }
         
     }
@@ -207,7 +235,7 @@ public class XNetTurnoutMonitoringTest {
      */
     @Test
     public void testFeedbackEvenTurnoutShortAfterBoot() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new XNetTestSimulator.NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
         ThreadingUtil.runOnLayout(() -> {
@@ -226,6 +254,9 @@ public class XNetTurnoutMonitoringTest {
         Thread.currentThread().sleep(1000);
         
         assertEquals(Turnout.CLOSED, t.getKnownState());
+        assertEquals(Turnout.CLOSED, t.getCommandedState());
+        assertEquals(Turnout.THROWN, t2.getKnownState());
+        assertEquals(Turnout.THROWN, t2.getCommandedState());
     }
     
 /*
@@ -267,9 +298,10 @@ public class XNetTurnoutMonitoringTest {
         }
         return (msg.getElement(2) & 0x08) > 0;
     }
+    
     @Test
     public void testDR5000Routetest() throws Exception {
-        initializeLayout(new DR5000TestSimulator());
+        initializeLayout(new XNetTestSimulator.DR5000(), new USBPacketizer());
         
         XNetTurnout p1 = (XNetTurnout)xnetManager.provideTurnout("XT11");
         XNetTurnout p2 = (XNetTurnout)xnetManager.provideTurnout("XT12");
@@ -282,6 +314,8 @@ public class XNetTurnoutMonitoringTest {
         outMap.put(15, 0);
         outMap.put(16, 1);
         
+        List<AssertionError> err = new ArrayList<>();
+        
         class L implements XNetListener {
             volatile int turnoutCommands;
             
@@ -291,18 +325,22 @@ public class XNetTurnoutMonitoringTest {
 
             @Override
             public void message(XNetMessage msg) {
-                int tnt = getCommandedTurnout(msg);
-                if (tnt == -1) {
-                    return;
+                try {
+                    int tnt = getCommandedTurnout(msg);
+                    if (tnt == -1) {
+                        return;
+                    }
+                    assertTrue("Unexpected turnout: " + tnt, outMap.containsKey(tnt));
+                    boolean s = getCommandedState(msg);
+                    if (s) {
+                        turnoutCommands++;
+                    }
+                    int o = getCommandedOutput(msg);
+                    int eo = outMap.get(tnt);
+                    assertEquals("Unexpected output " + o + " " + (s ? "ON" : "OFF") + " for turnout " + tnt, eo, o);
+                } catch (AssertionError e) {
+                    err.add(e);
                 }
-                assertTrue("Unexpected turnout: " + tnt, outMap.containsKey(tnt));
-                boolean s = getCommandedState(msg);
-                if (s) {
-                    turnoutCommands++;
-                }
-                int o = getCommandedOutput(msg);
-                int eo = outMap.get(tnt);
-                assertEquals("Unexpected output " + o + " " + (s ? "ON" : "OFF") + " for turnout " + tnt, eo, o);
             }
 
             @Override
@@ -329,6 +367,7 @@ public class XNetTurnoutMonitoringTest {
         Thread.sleep(6000);
         
         assertEquals(4, l.turnoutCommands);
+        assertEquals(Collections.emptyList(), err);
     }
 
     /**
@@ -338,10 +377,11 @@ public class XNetTurnoutMonitoringTest {
      */
     @Test
     public void testDR5000TurnoutMessage() throws Exception {
-        initializeLayout(new DR5000TestSimulator());
+        initializeLayout(new XNetTestSimulator.LZV100(), new USBPacketizer());
         
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
+        t2.setCommandedState(Turnout.CLOSED);
         
         Thread.currentThread().sleep(3000);
         
@@ -366,7 +406,7 @@ public class XNetTurnoutMonitoringTest {
      */
     @Test
     public void testMultipleActiveMessages() throws Exception {
-        initializeLayout(new GenLiTestSimulator());
+        initializeLayout(new XNetTestSimulator.NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
         XNetTurnout t2 = (XNetTurnout)xnetManager.provideTurnout("XT22");
         t.setCommandedState(Turnout.CLOSED);
