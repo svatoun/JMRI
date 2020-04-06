@@ -331,6 +331,28 @@ public abstract class AbstractMRTrafficController {
     }
 
     /**
+     * Takes one message from the head of the queue.
+     * Overridable for testing purposes.
+     * @param ll out: listener reference associated with the message
+     * @return the message, or {@code null} if the queue is empty.
+     */
+    protected AbstractMRMessage takeMessageToTransmit(AbstractMRListener[] ll) {
+        AbstractMRMessage m = null;
+        synchronized (this) {
+            if (!msgQueue.isEmpty()) {
+                // yes, something to do
+                m = msgQueue.getFirst();
+                msgQueue.removeFirst();
+                ll[0] = listenerQueue.getFirst();
+                listenerQueue.removeFirst();
+                mCurrentState = WAITMSGREPLYSTATE;
+                log.debug("transmit loop has something to do: {}", m);
+            }  // release lock here to proceed in parallel
+        }
+        return m;
+    }
+
+    /**
      * Permanent loop for the transmit thread.
      */
     protected void transmitLoop() {
@@ -341,17 +363,9 @@ public abstract class AbstractMRTrafficController {
             AbstractMRMessage m = null;
             AbstractMRListener l = null;
             // check for something to do
-            synchronized (this) {
-                if (!msgQueue.isEmpty()) {
-                    // yes, something to do
-                    m = msgQueue.getFirst();
-                    msgQueue.removeFirst();
-                    l = listenerQueue.getFirst();
-                    listenerQueue.removeFirst();
-                    mCurrentState = WAITMSGREPLYSTATE;
-                    log.debug("transmit loop has something to do: {}", m);
-                }  // release lock here to proceed in parallel
-            }
+            AbstractMRListener[] arr = new AbstractMRListener[1];
+            m = takeMessageToTransmit(arr);
+            l = arr[0];
             // if a message has been extracted, process it
             if (m != null) {
                 // check for need to change mode
