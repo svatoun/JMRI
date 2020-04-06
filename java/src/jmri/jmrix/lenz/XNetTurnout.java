@@ -311,7 +311,8 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
      */
     @Override
     public synchronized void message(XNetReply l) {
-        log.debug("received message: {}", l);
+        log.debug("Turnout: {}, internal state: {}, commanded {}, known {}, received message: {}", 
+                getSystemName(), internalState, getCommandedState(), getKnownState(), l);
         if (internalState == OFFSENT) {
             if (l.isOkMessage() && !l.isUnsolicited()) {
                 /* the command was successfully received */
