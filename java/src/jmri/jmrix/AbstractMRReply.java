@@ -118,6 +118,7 @@ abstract public class AbstractMRReply extends AbstractMessage {
                 s += (char) _dataChars[i];
             }
         }
+        s += ", unsolicited: " + isUnsolicited();
         return s;
     }
 
