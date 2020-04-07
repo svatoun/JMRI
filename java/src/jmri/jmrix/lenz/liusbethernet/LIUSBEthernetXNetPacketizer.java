@@ -70,6 +70,9 @@ public class LIUSBEthernetXNetPacketizer extends jmri.jmrix.lenz.liusb.LIUSBXNet
         byte lastbyte = (byte) 0xFF;
         log.debug("loading characters from port");
         for (i = 0; i < msg.maxSize(); i++) {
+            if (i == 0) {
+                notifyMessageStart(msg);
+            }
             byte char1 = readByteProtected(istream);
             // This is a test for the LIUSB device
             while ((i == 0) && ((char1 & 0xF0) == 0xF0)) {

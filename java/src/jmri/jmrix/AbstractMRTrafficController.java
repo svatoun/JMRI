@@ -189,7 +189,11 @@ public abstract class AbstractMRTrafficController {
 
     protected abstract AbstractMRListener pollReplyHandler();
 
-    protected AbstractMRListener mLastSender = null;
+    /**
+     * Sender of the last message. Set exclusively by the transmit thread, read
+     * by receive thread.
+     */
+    protected volatile AbstractMRListener mLastSender = null;
 
     protected volatile int mCurrentMode;
     public static final int NORMALMODE = 1;
@@ -313,16 +317,34 @@ public abstract class AbstractMRTrafficController {
      * @param reply the Listener sending the message, often provided as 'this'
      */
     protected synchronized void sendMessage(AbstractMRMessage m, AbstractMRListener reply) {
-        msgQueue.addLast(m);
-        listenerQueue.addLast(reply);
+        // priority message is always inserted at start, after all already
+        // queued priority messages.
+        if (m.isPriorityMessage()) {
+            int i;
+            for (i = 0; i < msgQueue.size(); i++) {
+                AbstractMRMessage check = msgQueue.get(i);
+                if (!check.isPriorityMessage()) {
+                    break;
+                }
+            }
+            msgQueue.add(i, m);
+            listenerQueue.add(i, reply);
+        } else {
+            msgQueue.addLast(m);
+            listenerQueue.addLast(reply);
+        }
         synchronized (xmtRunnable) {
             if (mCurrentState == IDLESTATE) {
                 mCurrentState = NOTIFIEDSTATE;
                 xmtRunnable.notify();
             }
         }
-        if (m != null) {
+        if (log.isDebugEnabled()) {
             log.debug("just notified transmit thread with message {}", m);
+            AbstractMRReply origin = m.getInReplyTo();
+            if (origin != null) {
+                log.debug("initiated by {}", origin);
+            }
         }
     }
 
@@ -518,6 +540,9 @@ public abstract class AbstractMRTrafficController {
                     // Do not wait if the current state has changed since we
                     // last set it.
                     if (mCurrentState != state) {
+                        // just to cover some error cases, should be reset by the
+                        // receive thread already, but in no case can remain populated
+                        currentTransmission = null;
                         return;
                     }
                     xmtRunnable.wait(wait); // rcvr normally ends this w state change
@@ -534,6 +559,8 @@ public abstract class AbstractMRTrafficController {
                 }
             }
         }
+        // normally reset by the receiver thread.
+        currentTransmission = null;
         log.debug("Timeout in transmitWait, mCurrentState: {}", mCurrentState);
     }
 
@@ -649,6 +676,15 @@ public abstract class AbstractMRTrafficController {
     protected boolean xmtException = false;
 
     /**
+     * Records the last transmission made by the controller. The field
+     * is filled just before the message is flushed to the output stream,
+     * to mark potential incoming reply. For diagnostic purposes only:
+     * the incoming reply MAY be an unsolicited message and just
+     * arrive concurrently with the transmission.
+     */
+    public volatile AbstractMRMessage currentTransmission;
+    
+    /**
      * Actually transmit the next message to the port.
      * @see #sendMessage(AbstractMRMessage, AbstractMRListener)
      *
@@ -661,7 +697,7 @@ public abstract class AbstractMRTrafficController {
         log.debug("forwardToPort message: [{}]", m);
         // remember who sent this
         mLastSender = reply;
-
+        
         // forward the message to the registered recipients,
         // which includes the communications monitor, except the sender.
         // Schedule notification via the Swing event queue to ensure order
@@ -698,6 +734,8 @@ public abstract class AbstractMRTrafficController {
                 }
                 while (m.getRetries() >= 0) {
                     if (portReadyToSend(controller)) {
+                        log.debug("Flushing message {}", m);
+                        currentTransmission = m;
                         ostream.write(msg);
                         ostream.flush();
                         log.debug("written, msg timeout: {} mSec", m.getTimeout());
@@ -968,6 +1006,21 @@ public abstract class AbstractMRTrafficController {
 
     // Defined this way to reduce new object creation
     private byte[] rcvBuffer = new byte[1];
+    
+    /**
+     * Callback when an incoming message is detected. Can be overriden
+     * in subclasses to provide a specific processing. Will be called
+     * after first byte of the message is received. The subclass must not
+     * assume the reply is populated with any data.
+     * <p>
+     * The default implementation links the reply to the currently transmitted
+     * outgoing message, if there is one.
+     * @param reply the reply instance being just received.
+     */
+    protected void notifyMessageStart(AbstractMRReply reply) {
+        log.debug("Detected incoming message msg-id: {}", Integer.toHexString(System.identityHashCode(reply)));
+        reply.attachTo(currentTransmission);
+    }
 
     /**
      * Get characters from the input source, and file a message.
@@ -987,6 +1040,9 @@ public abstract class AbstractMRTrafficController {
         int i;
         for (i = 0; i < msg.maxSize(); i++) {
             byte char1 = readByteProtected(istream);
+            if (i == 0) {
+                notifyMessageStart(msg);
+            }
             log.trace("char: {} i: {}",(char1&0xFF),i);
             // if there was a timeout, flush any char received and start over
             if (flushReceiveChars) {
@@ -1064,12 +1120,13 @@ public abstract class AbstractMRTrafficController {
         
         // message is complete, dispatch it !!
         replyInDispatch = true;
-        log.debug("dispatch reply of length {} contains \"{}\", state {}", msg.getNumDataElements(), msg, mCurrentState);
 
         // forward the message to the registered recipients,
         // which includes the communications monitor
         // return a notification via the Swing event queue to ensure proper thread
-        Runnable r = new RcvNotifier(msg, mLastSender, this);
+        RcvNotifier r = new RcvNotifier(msg, mLastSender, this);
+        log.debug("dispatch reply of length {} contains \"{}\", state {}, lastSender {}, while transmitting: {}", 
+                msg.getNumDataElements(), msg, mCurrentState, r.mDest, msg.getRepliesTo());
         distributeReply(r);
 
         if (!msg.isUnsolicited()) {
@@ -1090,6 +1147,7 @@ public abstract class AbstractMRTrafficController {
                                     Thread.currentThread().interrupt(); // retain if needed later
                                 }
                             }
+                            currentTransmission = null;
                             replyInDispatch = false;
                             xmtRunnable.notify();
                             retransmitCount++;
@@ -1097,6 +1155,7 @@ public abstract class AbstractMRTrafficController {
                     } else {
                         // update state, and notify to continue
                         synchronized (xmtRunnable) {
+                            currentTransmission = null;
                             mCurrentState = NOTIFIEDSTATE;
                             replyInDispatch = false;
                             xmtRunnable.notify();
@@ -1124,6 +1183,7 @@ public abstract class AbstractMRTrafficController {
                     }
                     // update state, and notify to continue
                     synchronized (xmtRunnable) {
+                        currentTransmission = null;
                         mCurrentState = OKSENDMSGSTATE;
                         xmtRunnable.notify();
                     }
@@ -1135,6 +1195,7 @@ public abstract class AbstractMRTrafficController {
                     replyInDispatch = false;
                     // update state, and notify to continue
                     synchronized (xmtRunnable) {
+                        currentTransmission = null;
                         mCurrentState = OKSENDMSGSTATE;
                         xmtRunnable.notify();
                     }
@@ -1223,6 +1284,18 @@ public abstract class AbstractMRTrafficController {
     }
 
     /**
+     * Tracks the current reply for diagnostic purposes. It is used to connect
+     * an outgoing command to a message originally received from the layout, to 
+     * establish command-response-command-response chain.
+     * <p>
+     * The value is populated before {@link RcvNotifier} calls out to individual
+     * listeners. It's thread local to prevent messages created from worker
+     * threads or automatons to be linked to the layout reply: the value
+     * is only valid for the execution of reply processing.
+     */
+    static ThreadLocal<AbstractMRReply> currentReply = new ThreadLocal<>();
+
+    /**
      * Internal class to remember the Reply object and destination listener with
      * a reply is received.
      */
@@ -1242,7 +1315,12 @@ public abstract class AbstractMRTrafficController {
         @Override
         public void run() {
             log.debug("Delayed rcv notify starts");
+            try {
+                currentReply.set(mMsg);
             mTc.notifyReply(mMsg, mDest);
+            } finally {
+                currentReply.remove();
+            }
         }
     } // end RcvNotifier
 

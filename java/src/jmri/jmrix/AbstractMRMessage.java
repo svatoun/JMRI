@@ -14,6 +14,15 @@ import org.slf4j.LoggerFactory;
  * @author Bob Jacobsen Copyright (C) 2003
  */
 abstract public class AbstractMRMessage extends AbstractMessage {
+    /**
+     * True, if the message is a priority one.
+     */
+    private boolean priorityMessage;
+
+    /**
+     * Tracks the message from the layout.
+     */
+    private final AbstractMRReply inReplyTo;
 
     /**
      * Create a new AbstractMRMessage instance.
@@ -23,6 +32,9 @@ abstract public class AbstractMRMessage extends AbstractMessage {
         setNeededMode(AbstractMRTrafficController.NORMALMODE);
         setTimeout(SHORT_TIMEOUT);  // default value is the short timeout
         setRetries(0); // default to no retries
+
+        // possible diagnostics: The reply being currently processed
+        inReplyTo = AbstractMRTrafficController.currentReply.get();
     }
 
     /**
@@ -120,7 +132,7 @@ abstract public class AbstractMRMessage extends AbstractMessage {
     public void setBinary(boolean b) {
         _isBinary = b;
     }
-
+    
     /**
      * Minimum timeout that's acceptable.
      * <p>
@@ -218,6 +230,27 @@ abstract public class AbstractMRMessage extends AbstractMessage {
         setElement(offset + 3, s.charAt(3));
     }
 
+    /**
+     * Determines, if this message is a priority one.
+     * @return true, if the message should be delivered at a priority.
+     */
+    public boolean isPriorityMessage() {
+        return priorityMessage;
+    }
+
+    /**
+     * Sets the priority message flag. A priority message is enqueued for transmission before all
+     * other non-priority messages. If there are more priority messages in the queue,
+     * this one will be added after all existing ones.
+     * @param priorityMessage 
+     */
+    public <T extends AbstractMRMessage> T asPriority(boolean priorityMessage) {
+        this.priorityMessage = priorityMessage;
+        @SuppressWarnings("unchecked")
+        T result = (T)this;
+        return result;
+    }
+    
     @Override
     public String toString() {
         String s = "";
@@ -231,7 +264,26 @@ abstract public class AbstractMRMessage extends AbstractMessage {
                 s += (char) _dataChars[i];
             }
         }
+        if (log.isDebugEnabled()) {
+            if (isPriorityMessage()) {
+                s += " [priority]";
+            }
+            s += ", msg-id:" + Integer.toHexString(System.identityHashCode(this));
+        }
         return s;
+    }
+    
+    /**
+     * Provides the reply from the layout, that triggered creation of the message. 
+     * If the message was created as part of processing of a reply from the layout,
+     * the method will return that reply object instance. It can be used to track
+     * command-response chains when diagnosing communication issues.
+     * <p>
+     * This is for diagnostic purposes only.
+     * @return reply from the layout, or {@code null} if not known.
+     */
+    public AbstractMRReply getInReplyTo() {
+        return inReplyTo;
     }
 
     private final static Logger log = LoggerFactory.getLogger(AbstractMRMessage.class);

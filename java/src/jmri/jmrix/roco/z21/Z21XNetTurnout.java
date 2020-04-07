@@ -69,7 +69,7 @@ public class Z21XNetTurnout extends XNetTurnout {
         log.debug("Notified of timeout on message {}",msg);
         // If we're in the OFFSENT state, we need to send another OFF message.
         synchronized (this) {
-            if (internalState == OFFSENT) {
+            if (isOffsentState()) {
                sendOffMessage(getCommandedState());
             }
         }

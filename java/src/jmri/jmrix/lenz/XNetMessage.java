@@ -38,7 +38,7 @@ public class XNetMessage extends jmri.jmrix.AbstractMRMessage implements Seriali
      interval of 500 milliseconds during normal communications */
     protected static final int XNetProgrammingTimeout = 10000;
     private static int XNetMessageTimeout = 5000;
-
+    
     /**
      * Create a new object, representing a specific-length message.
      *
