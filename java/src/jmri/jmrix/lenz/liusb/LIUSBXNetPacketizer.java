@@ -61,6 +61,9 @@ public class LIUSBXNetPacketizer extends XNetPacketizer {
         log.debug("loading characters from port");
         for (i = 0; i < msg.maxSize(); i++) {
             byte char1 = readByteProtected(istream);
+            if (i == 0) {
+                log.debug("Acquired first byte from command station to msg-id: {}", Integer.toHexString(System.identityHashCode(msg)));
+            }
             // This is a test for the LIUSB device
             while ((i == 0) && ((char1 & 0xF0) == 0xF0)) {
                 if ((char1 & 0xFF) != 0xF0 && (char1 & 0xFF) != 0xF2) {

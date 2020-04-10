@@ -86,6 +86,9 @@ public class XNetTurnoutManager extends jmri.managers.AbstractTurnoutManager imp
                 }
             }
         }
+        if (log.isDebugEnabled()) {
+            log.debug("End processing: {}",l);
+        }
     }
 
     protected void forwardMessageToTurnout(String s, XNetReply l){

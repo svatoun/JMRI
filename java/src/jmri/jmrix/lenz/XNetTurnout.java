@@ -125,7 +125,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
 
     protected String _prefix = "X"; // default
     protected XNetTrafficController tc = null;
-
+    
     public XNetTurnout(String prefix, int pNumber, XNetTrafficController controller) {  // a human-readable turnout number must be specified!
         super(prefix + "T" + pNumber);
         tc = controller;
@@ -305,37 +305,42 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
     public synchronized void message(XNetReply l) {
         log.debug("Turnout: {}, internal state: {}, commanded {}, known {}, received message: {}", 
                 getSystemName(), internalState, getCommandedState(), getKnownState(), l);
-        if (internalState == OFFSENT) {
-            if (l.isOkMessage() && !l.isUnsolicited()) {
-                /* the command was successfully received */
-                synchronized (this) {
-                    newKnownState(getCommandedState());
+        try {
+            if (internalState == OFFSENT) {
+                if (l.isOkMessage() && !l.isUnsolicited()) {
+                    /* the command was successfully received */
+                    synchronized (this) {
+                        newKnownState(getCommandedState());
+                    }
+                    sendQueuedMessage();
+                    return;
+                } else if (l.isRetransmittableErrorMsg()) {
+                    return; // don't do anything, the Traffic
+                    // Controller is handling retransmitting
+                    // this one.
+                } else {
+                    /* Default Behavior: If anything other than an OK message
+                     is received, Send another OFF message. */
+                    log.debug("Message is not OK message. Message received was: {}", l);
+                    sendOffMessage();
                 }
-                sendQueuedMessage();
-                return;
-            } else if (l.isRetransmittableErrorMsg()) {
-                return; // don't do anything, the Traffic
-                // Controller is handling retransmitting
-                // this one.
-            } else {
-                /* Default Behavior: If anything other than an OK message
-                 is received, Send another OFF message. */
-                log.debug("Message is not OK message. Message received was: {}", l);
-                sendOffMessage();
             }
-        }
 
-        switch (getFeedbackMode()) {
-            case EXACT:
-                handleExactModeFeedback(l);
-                break;
-            case MONITORING:
-                handleMonitoringModeFeedback(l);
-                break;
-            case DIRECT:
-            default:
-                // Default is direct mode
-                handleDirectModeFeedback(l);
+            switch (getFeedbackMode()) {
+                case EXACT:
+                    handleExactModeFeedback(l);
+                    break;
+                case MONITORING:
+                    handleMonitoringModeFeedback(l);
+                    break;
+                case DIRECT:
+                default:
+                    // Default is direct mode
+                    handleDirectModeFeedback(l);
+            }
+        } finally {
+            log.debug("End-Turnout: {}, internal state: {}, commanded {}, known {}, processed message: {}", 
+                    getSystemName(), internalState, getCommandedState(), getKnownState(), l);
         }
     }
 
@@ -565,7 +570,8 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
     protected synchronized void sendOffMessage() {
         // We need to tell the turnout to shut off the output.
         if (log.isDebugEnabled()) {
-            log.debug("Sending off message for turnout {} commanded state={}", mNumber, getCommandedState());
+            log.debug("Sending off message for turnout {} commanded state={}, internal={}, known={}", 
+                    mNumber, getCommandedState(), internalState, getKnownState());
             log.debug("Current Thread ID: {} Thread Name {}", java.lang.Thread.currentThread().getId(), java.lang.Thread.currentThread().getName());
         }
         XNetMessage msg = getOffMessage();
@@ -575,12 +581,18 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
             // messages, add a short delay before sending the
             // first off message.
             if (internalState != OFFSENT) {
+                log.debug("Scheduling off message {} by 30ms", msg);
+                if (msg.inReplyTo != null) {
+                    log.debug("initiated by {}", msg.inReplyTo);
+                }
                 jmri.util.ThreadingUtil.runOnLayoutDelayed( () ->
                    tc.sendHighPriorityXNetMessage(msg, this), 30);
+                log.debug("Continuing after runOnLayoutDelayed, going OFFSENT, resetting KnownState to {}", getCommandedState());
                 newKnownState(getCommandedState());
                 internalState = OFFSENT;
                 return;
             }
+            log.debug("Already in OFFSENT state, reseting KnownState to {}", getCommandedState());
             newKnownState(getCommandedState());
             internalState = OFFSENT;
         }
@@ -738,7 +750,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
                         // This was triggered by feedback on the layout, change
                         // the commanded state to reflect the new Known State
                         if (log.isDebugEnabled()) {
-                            log.debug("propertyChange CommandedState: {}", _turnout.getCommandedState());
+                            log.debug("updating CommandedState: {} -> {}", _turnout.getCommandedState(), curKnownState);
                         }
                         _turnout.newCommandedState(curKnownState);
                     } else {
@@ -748,7 +760,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
                         // an off message
                         if (oldKnownState == INCONSISTENT) {
                             if (log.isDebugEnabled()) {
-                                log.debug("propertyChange CommandedState: {}", _turnout.getCommandedState());
+                                log.debug("going from INCONSISTENT, send off message CommandedState: {}, Known: {}", _turnout.getCommandedState(), curKnownState);
                             }
                             _turnout.sendOffMessage();
                         }

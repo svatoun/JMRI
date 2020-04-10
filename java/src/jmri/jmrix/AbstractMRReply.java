@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
  */
 abstract public class AbstractMRReply extends AbstractMessage {
     // is this logically an abstract class?
-
+    
     /**
      * Create a new AbstractMRReply instance.
      */
@@ -119,6 +119,8 @@ abstract public class AbstractMRReply extends AbstractMessage {
             }
         }
         s += ", unsolicited: " + isUnsolicited();
+        s += ", msg-id: " + Integer.toHexString(System.identityHashCode(this));
+        
         return s;
     }
 
