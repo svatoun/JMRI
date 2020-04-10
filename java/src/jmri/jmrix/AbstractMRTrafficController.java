@@ -290,7 +290,7 @@ public abstract class AbstractMRTrafficController {
                 //skip dest for now, we'll send the message to there last.
                 if (dest != client) {
                     forwardReply(client, r);
-                }
+                } 
             } catch (RuntimeException e) {
                 log.warn("notify: During reply dispatch to {}", client, e);
             }
@@ -331,6 +331,9 @@ public abstract class AbstractMRTrafficController {
         }
         if (m != null) {
             log.debug("just notified transmit thread with message {}", m);
+            if (m.inReplyTo != null) {
+                log.debug("initiated by {}", m.inReplyTo);
+            }
         }
     }
 
@@ -349,7 +352,7 @@ public abstract class AbstractMRTrafficController {
                 msgQueue.removeFirst();
                 ll[0] = listenerQueue.getFirst();
                 listenerQueue.removeFirst();
-                mCurrentState = WAITMSGREPLYSTATE;
+                mCurrentState = WAITMSGREPLYSTATE;                
                 log.debug("transmit loop has something to do: {}", m);
             }  // release lock here to proceed in parallel
         }
@@ -372,6 +375,7 @@ public abstract class AbstractMRTrafficController {
             l = arr[0];
             // if a message has been extracted, process it
             if (m != null) {
+                m.origListener = l;
                 // check for need to change mode
                 log.debug("Start msg, state = {}", mCurrentMode);
                 if (m.getNeededMode() != mCurrentMode) {
@@ -564,6 +568,7 @@ public abstract class AbstractMRTrafficController {
                     // Do not wait if the current state has changed since we
                     // last set it.
                     if (mCurrentState != state) {
+                        lastTransmission = null;
                         return;
                     }
                     xmtRunnable.wait(wait); // rcvr normally ends this w state change
@@ -714,6 +719,8 @@ public abstract class AbstractMRTrafficController {
 
     protected boolean xmtException = false;
 
+    public volatile AbstractMRMessage lastTransmission;
+    
     /**
      * Actually transmit the next message to the port.
      * @see #sendMessage(AbstractMRMessage, AbstractMRListener)
@@ -727,6 +734,7 @@ public abstract class AbstractMRTrafficController {
         log.debug("forwardToPort message: [{}]", m);
         // remember who sent this
         mLastSender = reply;
+        lastTransmission = m;
 
         // forward the message to the registered recipients,
         // which includes the communications monitor, except the sender.
@@ -767,6 +775,7 @@ public abstract class AbstractMRTrafficController {
                 }
                 while (m.getRetries() >= 0) {
                     if (portReadyToSend(controller)) {
+                        log.debug("Flushing message {}", m);
                         ostream.write(msg);
                         ostream.flush();
                         log.debug("written, msg timeout: {} mSec", m.getTimeout());
@@ -1148,12 +1157,13 @@ public abstract class AbstractMRTrafficController {
         
         // message is complete, dispatch it !!
         replyInDispatch = true;
-        log.debug("dispatch reply of length {} contains \"{}\", state {}", msg.getNumDataElements(), msg, mCurrentState);
 
         // forward the message to the registered recipients,
         // which includes the communications monitor
         // return a notification via the Swing event queue to ensure proper thread
-        Runnable r = new RcvNotifier(msg, mLastSender, this);
+        RcvNotifier r = new RcvNotifier(msg, mLastSender, this);
+        log.debug("dispatch reply of length {} contains \"{}\", state {}, lastSender {}, while transmitting: {}", 
+                msg.getNumDataElements(), msg, mCurrentState, r.mDest, lastTransmission);
         distributeReply(r);
 
         if (!msg.isUnsolicited()) {
@@ -1319,6 +1329,8 @@ public abstract class AbstractMRTrafficController {
             }
         }
     }
+    
+    public static ThreadLocal<AbstractMRReply> currentReply = new ThreadLocal();
 
     /**
      * Internal class to remember the Reply object and destination listener with
@@ -1340,7 +1352,12 @@ public abstract class AbstractMRTrafficController {
         @Override
         public void run() {
             log.debug("Delayed rcv notify starts");
-            mTc.notifyReply(mMsg, mDest);
+            try {
+                currentReply.set(mMsg);
+                mTc.notifyReply(mMsg, mDest);
+            } finally {
+                currentReply.remove();
+            }
         }
     } // end RcvNotifier
 

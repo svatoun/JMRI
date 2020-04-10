@@ -15,6 +15,10 @@ import org.slf4j.LoggerFactory;
  */
 abstract public class AbstractMRMessage extends AbstractMessage {
 
+    public volatile AbstractMRListener origListener;
+    
+    public final AbstractMRReply inReplyTo;
+
     /**
      * Create a new AbstractMRMessage instance.
      */
@@ -23,6 +27,7 @@ abstract public class AbstractMRMessage extends AbstractMessage {
         setNeededMode(AbstractMRTrafficController.NORMALMODE);
         setTimeout(SHORT_TIMEOUT);  // default value is the short timeout
         setRetries(0); // default to no retries
+        inReplyTo = AbstractMRTrafficController.currentReply.get();
     }
 
     /**
@@ -291,6 +296,7 @@ abstract public class AbstractMRMessage extends AbstractMessage {
                 s += (char) _dataChars[i];
             }
         }
+        s += ", msg-id: " + Integer.toHexString(System.identityHashCode(this));
         return s;
     }
 

@@ -129,7 +129,7 @@ public class XNetTurnoutMonitoringTest {
      * 
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testGenLiSwitchTimeout() throws Exception {
         initializeLayout(new XNetTestSimulator.NanoXGenLi());
         
@@ -182,7 +182,7 @@ public class XNetTurnoutMonitoringTest {
      * 
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testGenLiIncorrectTurnoutState() throws Exception {
         initializeLayout(new XNetTestSimulator.NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
@@ -233,7 +233,7 @@ public class XNetTurnoutMonitoringTest {
      * (i. e. startup script), the turnout's known state should match the commanded state.
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testFeedbackEvenTurnoutShortAfterBoot() throws Exception {
         initializeLayout(new XNetTestSimulator.NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);
@@ -301,17 +301,26 @@ public class XNetTurnoutMonitoringTest {
     
     @Test
     public void testDR5000Routetest() throws Exception {
-        initializeLayout(new XNetTestSimulator.DR5000(), new USBPacketizer());
+//        initializeLayout(new XNetTestSimulator.DR5000(), new USBPacketizer());
+        initializeLayout(new XNetTestSimulator.LZV100_USB(), new USBPacketizer());
         
         XNetTurnout p1 = (XNetTurnout)xnetManager.provideTurnout("XT11");
         XNetTurnout p2 = (XNetTurnout)xnetManager.provideTurnout("XT12");
         XNetTurnout p3 = (XNetTurnout)xnetManager.provideTurnout("XT15");
         XNetTurnout p4 = (XNetTurnout)xnetManager.provideTurnout("XT16");
         
+        p1.setCommandedState(2);
+        p2.setCommandedState(4);
+        p3.setCommandedState(2);
+        p4.setCommandedState(2);
+        
+        Thread.sleep(12000);
+        log.debug("---------------------------- start ------------------");
+        
         Map<Integer, Integer> outMap = new HashMap<>();
-        outMap.put(11, 0);
-        outMap.put(12, 1);
-        outMap.put(15, 0);
+        outMap.put(11, 1);
+        outMap.put(12, 0);
+        outMap.put(15, 1);
         outMap.put(16, 1);
         
         List<AssertionError> err = new ArrayList<>();
@@ -352,13 +361,13 @@ public class XNetTurnoutMonitoringTest {
         
         Thread.sleep(1000);
         ThreadingUtil.runOnLayout(() -> {
-            p1.setCommandedState(XNetTurnout.CLOSED);
+            p1.setCommandedState(XNetTurnout.THROWN);
         });
         ThreadingUtil.runOnLayout(() -> {
-            p2.setCommandedState(XNetTurnout.THROWN);
+            p2.setCommandedState(XNetTurnout.CLOSED);
         });
         ThreadingUtil.runOnLayout(() -> {
-            p3.setCommandedState(XNetTurnout.CLOSED);
+            p3.setCommandedState(XNetTurnout.THROWN);
         });
         ThreadingUtil.runOnLayout(() -> {
             p4.setCommandedState(XNetTurnout.THROWN);
@@ -375,7 +384,7 @@ public class XNetTurnoutMonitoringTest {
      * in the correct commanded state.
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testDR5000TurnoutMessage() throws Exception {
         initializeLayout(new XNetTestSimulator.LZV100(), new USBPacketizer());
         
@@ -404,7 +413,7 @@ public class XNetTurnoutMonitoringTest {
      * when multiple active messages are in the transmit queue.
      * @throws Exception 
      */
-    @Test
+//    @Test
     public void testMultipleActiveMessages() throws Exception {
         initializeLayout(new XNetTestSimulator.NanoXGenLi());
         TurnoutManager mgr = InstanceManager.getDefault().getInstance(TurnoutManager.class);

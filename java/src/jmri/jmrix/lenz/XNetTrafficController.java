@@ -91,6 +91,7 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
             }
             if (mask == XNetInterface.ALL) {
                 // Note: also executing this branch, if the client is not registered at all.
+                log.debug("Direct forward message {} to {}", m, client);
                 ((XNetListener) client).message((XNetReply) m);
             } else if ((mask & XNetInterface.COMMINFO)
                     == XNetInterface.COMMINFO
@@ -142,9 +143,15 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
         // using offer as the queue is unbounded and should never block on write.
         // Note: the message should be inserted LAST, as the message is tested/acquired first
         // by the reader; serves a a guard for next item processing.
+        log.debug("Posted high-priority message {}, reply-to: {}", m, reply);
+        if (m.inReplyTo != null) {
+            log.debug("initiated by {}", m.inReplyTo);
+        }
         highPriorityListeners.add(reply);
         highPriorityQueue.add(m);
     }
+    
+    private XNetMessage lastHighPrioPolled;
 
     @Override
     protected AbstractMRMessage pollMessage() {
@@ -152,7 +159,10 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
             if (highPriorityQueue.peek() == null) {
                 return null;
             } else {
-                return highPriorityQueue.take();
+                XNetMessage msg = highPriorityQueue.take();
+                log.debug("High-priority polled: {}", msg);
+                lastHighPrioPolled = msg;
+                return msg;
             }
         } catch (java.lang.InterruptedException ie) {
             log.error("Interrupted while removing High Priority Message from Queue");
@@ -166,7 +176,9 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
             if (highPriorityListeners.peek() == null) {
                 return null;
             } else {
-                return highPriorityListeners.take();
+                XNetListener l = highPriorityListeners.take();
+                log.debug("High-priority polled: {} with reply-to:", lastHighPrioPolled, l);
+                return l;
             }
         } catch (java.lang.InterruptedException ie) {
             log.error("Interrupted while removing High Priority Message Listener from Queue");
