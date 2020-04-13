@@ -212,12 +212,4 @@ public class XNetPacketizerTest extends XNetTrafficControllerTest {
         }
     }
 
-    @After
-    @Override
-    public void tearDown() {
-        tc.terminateThreads();
-        tc = null;
-        JUnitUtil.tearDown();
-    }
-
 }
