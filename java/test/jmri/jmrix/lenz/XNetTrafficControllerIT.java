@@ -31,9 +31,6 @@ import org.junit.Test;
  * @author svatopluk.dedic@gmail.com
  */
 public class XNetTrafficControllerIT {
-    // derived classes should set the value of tc appropriately.
-    protected AbstractMRTrafficController tc;
-
     XNetTestSimulator testAdapter;
     XNetPacketizer lnis;
     
@@ -61,13 +58,6 @@ public class XNetTrafficControllerIT {
         jmri.util.JUnitUtil.initInternalSensorManager();
         jmri.util.JUnitUtil.initInternalTurnoutManager();
         jmri.InstanceManager.store(new jmri.NamedBeanHandleManager(), jmri.NamedBeanHandleManager.class);
-
-        tc = new XNetTrafficController(new LenzCommandStation()){
-            @Override
-            public void sendXNetMessage(XNetMessage m, XNetListener reply){
-                System.err.println("ahoj");
-            }
-        };
     }
     
     public interface MessageOutput {
@@ -103,8 +93,10 @@ public class XNetTrafficControllerIT {
         
         @Override
         protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
-            super.handleTimeout(msg, l);
-            timeoutOccured = true;
+            if (!threadStopRequest) {
+                super.handleTimeout(msg, l);
+                timeoutOccured = true;
+            }
         }
 
         // Just a trampoline
@@ -170,8 +162,11 @@ public class XNetTrafficControllerIT {
     }
 
     @After
-    public void tearDown(){
-        tc = null;
+    public void tearDown() throws Exception {
+        XNetTrafficController ctrl = (XNetTrafficController)output; 
+        ctrl.terminateThreads();
+        ctrl.disconnectPort(testAdapter);
+        testAdapter.dispose();
         JUnitUtil.clearShutDownManager(); // put in place because AbstractMRTrafficController implementing subclass was not terminated properly
         JUnitUtil.tearDown();
     }
@@ -361,7 +356,7 @@ public class XNetTrafficControllerIT {
         XNetTestSimulator simul = new XNetTestSimulator.LZV100_USB();
         CountDownLatch l = new CountDownLatch(1);
         CountDownLatch l2 = new CountDownLatch(1);
-
+        
         AtomicReference<AbstractMRMessage> marker = new AtomicReference<>();
         
         initializeLayout(simul, new TestUSBPacketizer(new LenzCommandStation()) {
@@ -385,8 +380,13 @@ public class XNetTrafficControllerIT {
         
         Turnout t = initOnLayout(() -> {
             Turnout x = xnetManager.provideTurnout("XT21");
-            x.setCommandedState(XNetTurnout.CLOSED);
             return x;
+        });
+        // there's a query packet after turnout creation
+        testAdapter.drainPackets(true);
+        
+        ThreadingUtil.runOnLayout(() -> {
+            t.setCommandedState(XNetTurnout.CLOSED);
         });
         
         // delayed OFF messages are sent
@@ -404,8 +404,7 @@ public class XNetTrafficControllerIT {
             }
         });
         l.await(300, TimeUnit.MILLISECONDS);
-        testAdapter.drainPackets(false);
-        
+
         // the turnout must be already IDLE
         assertEquals(XNetTurnout.IDLE, ((XNetTurnout)t).internalState);
         
