@@ -421,7 +421,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         if (!isFeedbackMessage()) {
             return CONSUMED_ACTION;
         }
-        return (accessoryAddr & 0x01) > 0 ? CONSUMED_ACTION : CONSUMED_ACTION_EVEN;
+        return (accessoryAddr & 0x01) != 0 ? CONSUMED_ACTION : CONSUMED_ACTION_EVEN;
     }
 
     /**
