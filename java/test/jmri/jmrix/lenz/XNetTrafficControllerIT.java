@@ -2,6 +2,7 @@ package jmri.jmrix.lenz;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
@@ -403,7 +404,7 @@ public class XNetTrafficControllerIT {
                 marker.set(msg);
             }
         });
-        l.await(300, TimeUnit.MILLISECONDS);
+        assertTrue(l.await(300, TimeUnit.MILLISECONDS));
 
         // the turnout must be already IDLE
         assertEquals(XNetTurnout.IDLE, ((XNetTurnout)t).internalState);
@@ -413,11 +414,20 @@ public class XNetTrafficControllerIT {
         // there should be 4 replies from the 'command station':
         // accessory request --> feedback + OK
         // 1st OFF           --> OK
-        // 2nd OFF           --> OK
-        l2.await(500, TimeUnit.MILLISECONDS);
+        // 2nd OFF           --> OK, but may be delayed
+        assertTrue(l2.await(500, TimeUnit.MILLISECONDS));
+        Thread.sleep(100);
         List<XNetReply> replies = simul.getIncomingReplies();
-        assertEquals(4, replies.size());
+        assertTrue(replies.size() >= 3);
+        // feedback reply to the turnout command
+        assertEquals(0x42, replies.get(0).getElement(0));
+        // OK 2nd reply to the turnout command
+        assertEquals(0x01, replies.get(1).getElement(0));
+        // OK reply to the non-delayed OFF message
+        assertEquals(0x01, replies.get(2).getElement(0));
         
+        // the message at index #3 and #4 are eithr response to the marker,
+        // or the OK-to-second OFF.
     }
 
 }

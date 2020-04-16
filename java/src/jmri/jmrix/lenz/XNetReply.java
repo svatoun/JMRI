@@ -458,7 +458,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
      * use {@link #CONSUMED_ACTION} or {@link #CONSUMED_ACTION_EVEN} depending
      * on accessory address. It will do nothing and return {@code false} on
      * feedback broadcasts with more items - this may change in the future.
-     * <p/>
+     * <p>
      * For general description, see {@link #markConsumed(int)}.
      * @param accessoryAddr the turnout number.
      * @return true, if consumed.
