@@ -55,7 +55,7 @@ import jmri.util.prefs.InitializationException;
  */
 public class JmriConfigurationManager implements ConfigureManager {
 
-    private final static Logger log = LoggerFactory.getLogger(JmriConfigurationManager.class);
+    public final static Logger log = LoggerFactory.getLogger(JmriConfigurationManager.class);
     private final ConfigXmlManager legacy = new ConfigXmlManager();
     private final HashMap<PreferencesManager, InitializationException> initializationExceptions = new HashMap<>();
     private final List<PreferencesManager> initialized = new ArrayList<>();

@@ -11,6 +11,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -111,6 +112,12 @@ public class Roster extends XmlFile implements RosterGroupSelector, PropertyChan
      * entry. {@value #CHANGE}
      */
     public static final String CHANGE = "change"; // NOI18N
+    
+    /**
+     * The entry was replaced.
+     */
+    public static final String REPLACE = "replace"; // NOI18N
+    
     /**
      * Property change event fired when saving the roster. {@value #SAVED}
      */
@@ -146,11 +153,15 @@ public class Roster extends XmlFile implements RosterGroupSelector, PropertyChan
      */
     public Roster() {
         super();
+        log.debug("Creating roster id {}", System.identityHashCode(this));
+        log.debug("Creating roster id {}", new Throwable());
         FileUtil.getDefault().addPropertyChangeListener(FileUtil.PREFERENCES, (PropertyChangeEvent evt) -> {
             FileUtil.Property oldValue = (FileUtil.Property) evt.getOldValue();
             FileUtil.Property newValue = (FileUtil.Property) evt.getNewValue();
             Profile project = oldValue.getKey();
             if (this.equals(getRoster(project)) && getRosterLocation().equals(oldValue.getValue())) {
+                log.debug("Got preferenes change, reloading roster id {}", System.identityHashCode(this));
+                log.debug("Got preferenes change, reloading roster id {}", new Throwable());
                 setRosterLocation(newValue.getValue());
                 reloadRosterFile();
             }
@@ -211,7 +222,7 @@ public class Roster extends XmlFile implements RosterGroupSelector, PropertyChan
      * @param e Entry to add
      */
     public void addEntry(RosterEntry e) {
-        log.debug("Add entry {}", e);
+        log.debug("Add entry {} to roster id: {}", e, System.identityHashCode(this));
         synchronized (_list) {
             int i = _list.size() - 1; // Last valid index
             while (i >= 0) {
@@ -227,6 +238,24 @@ public class Roster extends XmlFile implements RosterGroupSelector, PropertyChan
         this.addRosterGroups(e.getGroups(this));
         setDirty(true);
         firePropertyChange(ADD, null, e);
+    }
+    
+    public boolean replaceEntry(RosterEntry old, RosterEntry e) {
+        if (!Objects.equals(old.getId(), e.getId())) {
+            throw new IllegalArgumentException();
+        }
+        synchronized (this) {
+            int i = _list.indexOf(old);
+            if (i == -1) {
+                return false;
+            }
+            _list.set(i, e);
+            e.addPropertyChangeListener(this);
+        }
+        this.addRosterGroups(e.getGroups(this));
+        setDirty(true);
+        firePropertyChange(REPLACE, null, e);
+        return true;
     }
 
     /**
@@ -830,7 +859,7 @@ public class Roster extends XmlFile implements RosterGroupSelector, PropertyChan
             log.debug("no roster file found; this is normal if you haven't put decoders in your roster yet");
             return;
         }
-
+        Thread.dumpStack();
         // find root
         Element root = rootFromName(name);
         if (root == null) {

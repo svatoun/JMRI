@@ -205,6 +205,7 @@ public class RosterConfigManager extends AbstractPreferencesManager {
         if (roster == null) {
             roster = new Roster();
             rosters.put(profile, roster);
+            log.debug("Registered roster {} for profile {}", System.identityHashCode(roster), profile);
         }
         return roster;
     }

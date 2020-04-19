@@ -3,6 +3,7 @@ package jmri.beans;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import jmri.implementation.JmriConfigurationManager;
 import jmri.util.ThreadingUtil;
 
 /**
@@ -151,6 +152,9 @@ public abstract class Bean extends UnboundBean implements PropertyChangeProvider
      */
     protected void firePropertyChange(String propertyName, Object oldValue, Object newValue) {
         ThreadingUtil.runOnGUIEventually(() -> {
+            if ("preference:".equals(propertyName)) {
+                JmriConfigurationManager.log.debug("Got preferenes change, firing event {}", new Throwable());
+            }
             propertyChangeSupport.firePropertyChange(propertyName, oldValue, newValue);
         });
     }
