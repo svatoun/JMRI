@@ -2,7 +2,8 @@ package apps.gui;
 
 import java.awt.Font;
 import java.util.ArrayList;
-import java.util.Enumeration;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -19,8 +20,8 @@ import jmri.beans.Bean;
 import jmri.profile.Profile;
 import jmri.profile.ProfileUtils;
 import jmri.spi.PreferencesManager;
+import jmri.util.ThreadingUtil;
 import jmri.util.prefs.InitializationException;
-import jmri.util.swing.SwingSettings;
 import org.openide.util.lookup.ServiceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -108,15 +109,22 @@ public class GuiLafPreferencesManager extends Bean implements PreferencesManager
 
             log.debug("About to setDefault Locale");
             Locale.setDefault(this.getLocale());
-            javax.swing.JComponent.setDefaultLocale(this.getLocale());
-            javax.swing.JOptionPane.setDefaultLocale(this.getLocale());
-
-            this.applyLookAndFeel();
-            this.applyFontSize();
-            SwingSettings.setNonStandardMouseEvent(this.isNonStandardMouseEvent());
             this.setDirty(false);
             this.setRestartRequired(false);
+
             this.initialized = true;
+
+            ThreadingUtil.runOnGUIEventually(() -> {
+                javax.swing.JComponent.setDefaultLocale(this.getLocale());
+                // redundant:
+                javax.swing.JOptionPane.setDefaultLocale(this.getLocale());
+                
+                // this is too risky to fire in non-EDT thread. UIManager starts to 
+                // fire out events; if some UI is already showing at the moment, it will receive
+                // an event in the wrong thread.
+                this.applyLookAndFeel();
+                this.applyFontSize();
+            });
         }
     }
 
@@ -246,9 +254,7 @@ public class GuiLafPreferencesManager extends Bean implements PreferencesManager
      * The value can be can be read by calling {@link #getDefaultFont()}
      */
     public void setDefaultFont() {
-        java.util.Enumeration<Object> keys = UIManager.getDefaults().keys();
-        while (keys.hasMoreElements()) {
-            Object key = keys.nextElement();
+        for (Object key : safeUIManagerKeys()) {
             Object value = UIManager.get(key);
 
             if (value instanceof javax.swing.plaf.FontUIResource && key.toString().equals("List.font")) {
@@ -302,9 +308,7 @@ public class GuiLafPreferencesManager extends Bean implements PreferencesManager
      * The value can be can be read by calling {@link #getDefaultFontSize()}
      */
     public void setDefaultFontSize() {
-        java.util.Enumeration<Object> keys = UIManager.getDefaults().keys();
-        while (keys.hasMoreElements()) {
-            Object key = keys.nextElement();
+        for (Object key : safeUIManagerKeys()) {
             Object value = UIManager.get(key);
 
             if (value instanceof javax.swing.plaf.FontUIResource && key.toString().equals("List.font")) {
@@ -325,9 +329,7 @@ public class GuiLafPreferencesManager extends Bean implements PreferencesManager
         // the unnessesary overhead of getting the fonts
         if (log.isTraceEnabled()) {
             log.trace("******** LAF={}", UIManager.getLookAndFeel().getClass().getName());
-            java.util.Enumeration<Object> keys = UIManager.getDefaults().keys();
-            while (keys.hasMoreElements()) {
-                Object key = keys.nextElement();
+            for (Object key : safeUIManagerKeys()) {
                 Object value = UIManager.get(key);
                 if (value instanceof javax.swing.plaf.FontUIResource || value instanceof java.awt.Font || key.toString().endsWith(".font")) {
                     Font f = UIManager.getFont(key);
@@ -471,6 +473,13 @@ public class GuiLafPreferencesManager extends Bean implements PreferencesManager
             }
         }
     }
+    
+    private Collection<Object> safeUIManagerKeys() {
+        // the returned keySet() is synchronized;
+        Collection<Object> ks = UIManager.getDefaults().keySet();
+        Object[] toArray = ks.toArray(new Object[ks.size()]);
+        return Arrays.asList(toArray);
+    }
 
     /**
      * Applies a new calculated font size to all found fonts.
@@ -484,9 +493,7 @@ public class GuiLafPreferencesManager extends Bean implements PreferencesManager
         }
         if (this.getFontSize() != this.getDefaultFontSize()) {
 //            UIManager.getDefaults().keySet().stream().forEach((key) -> {
-            Enumeration<Object> keys = UIManager.getDefaults().keys();
-            while (keys.hasMoreElements()) {
-                Object key = keys.nextElement();
+            for (Object key : safeUIManagerKeys()) {
                 Object value = UIManager.get(key);
                 if (value instanceof javax.swing.plaf.FontUIResource || value instanceof java.awt.Font || key.toString().endsWith(".font")) {
                     UIManager.put(key, UIManager.getFont(key).deriveFont(((Font) value).getStyle(), getCalcFontSize(((Font) value).getSize())));
