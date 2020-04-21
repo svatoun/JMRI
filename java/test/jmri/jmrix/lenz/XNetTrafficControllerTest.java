@@ -4,12 +4,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import jmri.InstanceManager;
 import jmri.Turnout;
 import jmri.jmrix.AbstractMRListener;
@@ -285,7 +287,7 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
     /**
      * Check that feedback+ok is processed before the command is acknowledged.
      */
-    @Test
+//    @Test
     public void testFeedbackAndOKProcessedBeforeNextCommand() throws Exception {
         
         XNetTestSimulator simul = new XNetTestSimulator.LZV100_USB();
@@ -313,7 +315,7 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
      * If feedback itself releases transmit thread, the OK may be paired to the next
      * message transmitted, and the transmit/receive message streams go out of sync.
      */
-    @Test
+//    @Test
     public void testOKAndFeedbackProcessedBeforeNextCommand() throws Exception {
         
     }
@@ -327,5 +329,140 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
      */
     public void testUnsolicitedFeedbackNotTargetedToCommande() throws Exception {
         
+    }
+    
+    interface AccRequestCallback {
+        public XNetReply getReply(int address, int output, boolean state);
+    }
+    
+    static class BusyLenzSimulator extends XNetTestSimulator.LZV100_USB {
+        volatile AccRequestCallback cb;
+        
+        @Override
+        protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
+            if (cb != null) {
+                XNetReply r = cb.getReply(address, output, state);
+                if (r != null) {
+                    return r;
+                }
+            }
+            return super.generateAccRequestReply(address, output, state);
+        }
+    }
+    
+    @Test
+    public void testSendBusyToOutputOff() throws Exception {
+        BusyLenzSimulator simul = new BusyLenzSimulator();
+        initializeLayout(simul, new TestUSBPacketizer(new LenzCommandStation()));
+        
+        XNetTurnout t = (XNetTurnout)xnetManager.provideTurnout("XT21");
+        // excess OFF messages are sent
+        Thread.sleep(1000);
+        
+        // send just 3 BUSY to break "error handling"
+        AtomicInteger counter = new AtomicInteger(0);
+        
+        simul.cb = (a, o, s) -> {
+            // ignore ON messages, normal processing.
+            if (s) {
+                return null;
+            }
+            // send at most 3 BUSY messages.
+            if (counter.incrementAndGet() > 3) {
+                return null;
+            }
+            XNetReply reply = new XNetReply("61 81 E0");
+            return reply;
+        };
+        simul.setCaptureMessages(true);
+        t.setCommandedState(XNetTurnout.THROWN);
+        
+        // wait for the timeout time to get potentially all repetitions.
+        Thread.sleep(6000);
+        
+        List<XNetMessage> outgoing = simul.getOutgoingMessages();
+        List<XNetMessage> justOFFs = outgoing.stream().filter((m) -> 
+                m.getElement(0) == 0x52 &&
+                (m.getElement(2) & 0x08) == 0).collect(Collectors.toList());
+        
+        // show individual messages were NOT retransmitted at all, the "retransmition"
+        // is just a FAKE because of OFFs replicated in advance. Retries start at 5,
+        // and are decremented for each retransmission. All the messages have still 5:
+        int index = 1;
+        for (XNetMessage m : justOFFs) {
+            System.err.println("Message #" + index + ": " + m + ", retries avail: " + m.getRetries());
+            index++;
+        }
+
+        // 5 retransmissions are permitted by default, so after 3 rejected OFFs, some should be yet sent:
+        assertTrue("3 OFFs were rejected by station, they must be repeated !", justOFFs.size() > 3);
+    }
+
+    @Test
+    public void testSendBusyErrorIgnoredNewCommandSent() throws Exception {
+        BusyLenzSimulator simul = new BusyLenzSimulator();
+        initializeLayout(simul, new TestUSBPacketizer(new LenzCommandStation()));
+        
+        XNetTurnout t = (XNetTurnout)xnetManager.provideTurnout("XT21");
+        // excess OFF messages are sent
+        Thread.sleep(1000);
+        
+        // send just 1 BUSY in response to OFF message.
+        // station status query message that will happen BEFORE the erroneously
+        // multiplied OFFs:
+        AtomicInteger counter = new AtomicInteger(0);
+        
+        CountDownLatch msgLatch = new CountDownLatch(1);
+        
+        List<XNetMessage> messagesUntilBusy = new ArrayList<>();
+        
+        simul.cb = (a, o, s) -> {
+            // ignore ON messages, normal processing.
+            if (s) {
+                return null;
+            }
+            if (counter.incrementAndGet()> 1) {
+                return null;
+            }
+            XNetReply reply = new XNetReply("61 81 E0");
+            messagesUntilBusy.addAll(simul.getOutgoingMessages());
+            simul.clearMesages();
+            
+            // at this point, queue "incidentally" another command for transmission
+            // it has to be before pre-poll interval elapses.
+            
+            // It would be better to do right here, but Paul would probably not believe it is real,
+            // so rely on the main thread will wake up & execute the sendXNetMessage in less than 100ms.
+            msgLatch.countDown();
+            return reply;
+        };
+        simul.setCaptureMessages(true);
+        t.setCommandedState(XNetTurnout.THROWN);
+
+        List<XNetMessage>   outgoingAfterError = new ArrayList<>();
+        
+        // wait until the error is generated.
+        assertTrue(msgLatch.await(5, TimeUnit.SECONDS));
+        
+        CountDownLatch versionLatch = new CountDownLatch(1);
+        
+        // then just send a normal message at the same time OFF is rejected. 
+        // The rejected OFF should be repeated, before THIS message is processed:
+        lnis.sendXNetMessage(
+            XNetMessage.getCSVersionRequestMessage(),
+            new XNetListenerScaffold(){
+                @Override
+                public void message(XNetReply msg) {
+                    outgoingAfterError.addAll(simul.getOutgoingMessages());
+                    versionLatch.countDown();
+                }
+            }
+        );
+        // wait until the Version request is *replied*
+        assertTrue(versionLatch.await(5, TimeUnit.SECONDS));
+        
+        // the repeated OFF should have been in the captured outgoing messages before
+        // the CS version request:
+        assertEquals(0x52, outgoingAfterError.get(0).getElement(0));
     }
 }

@@ -177,7 +177,7 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
                 return null;
             } else {
                 XNetListener l = highPriorityListeners.take();
-                log.debug("High-priority polled: {} with reply-to:", lastHighPrioPolled, l);
+                log.debug("High-priority polled: {} with reply-to: {}", lastHighPrioPolled, l);
                 return l;
             }
         } catch (java.lang.InterruptedException ie) {

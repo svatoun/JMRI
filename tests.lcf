@@ -150,3 +150,7 @@ log4j.category.apps.PanelPro.PanelPro = INFO
 log4j.category.apps.gui3.Apps3 = INFO
 log4j.category.apps.gui3.dp3.DecoderPro3 = INFO
 
+log4j.category.jmri.jmrix.lenz=DEBUG
+log4j.category.jmri.implementation.AbstractTurnout=DEBUG
+log4j.category.jmri.jmrix.AbstractMRTrafficController=DEBUG
+
