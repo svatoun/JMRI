@@ -536,14 +536,20 @@ public abstract class AbstractMRTrafficController {
                         } else {
                             resetTimeout(msg);
                         }
+                        // for the records, save 'msg' to m:
                     }
                     waitTimePoll = 0;
                 }
+                if (mCurrentState == AUTORETRYSTATE) {
+                    log.debug("*** WARNING: AUTORETRYSTATE ignored after for message: {}, sender {}", m, mLastSender);
+                }
+                log.debug("Exiting poll process in state {}, entering new message cycle.", mCurrentState);
                 // FIXME check: no synchronization between this and receive thread
                 // which may finish processing a message and go to NOTIFIED state.
                 // no messages, so back to idle
                 if (mCurrentState == POLLSTATE) {
                     mCurrentState = IDLESTATE;
+                    log.debug("Set IDLE state after completed poll.");
                 }
             }
         }

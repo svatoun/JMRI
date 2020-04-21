@@ -315,6 +315,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
                     sendQueuedMessage();
                     return;
                 } else if (l.isRetransmittableErrorMsg()) {
+                    log.debug("Message is retransmittable error, handing off to Traffic Controller; return.");
                     return; // don't do anything, the Traffic
                     // Controller is handling retransmitting
                     // this one.
