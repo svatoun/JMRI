@@ -6,7 +6,9 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -17,7 +19,9 @@ import jmri.Turnout;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
 import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
+import jmri.util.JUnitAppender;
 import jmri.util.JUnitUtil;
+import org.apache.log4j.Level;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -63,13 +67,30 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
         public void sendMessage(AbstractMRMessage m, AbstractMRListener reply);
     }
     
+    volatile XNetMessage originalMessage;
+    Map<XNetMessage, AtomicInteger> retryCounters = new IdentityHashMap<>();
+    
     class TestUSBPacketizer extends LIUSBXNetPacketizer implements MessageOutput {
-
         public TestUSBPacketizer(LenzCommandStation pCommandStation) {
             super(pCommandStation);
             output = this;
         }
         
+        /**
+         * Counts the number of retries after errors, does NOT count retries
+         * after timeout.
+s         */
+        @Override
+        protected synchronized void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
+            super.forwardToPort(m, reply);
+            XNetMessage msg = (XNetMessage)m;
+            // for each *instance* of message, track the number of attempts to send.
+            // XNetMessage with the same payload are equals(), but we want to track instances,
+            // to see what msg was actually re-send, and which was just replicated
+            retryCounters.computeIfAbsent(msg, (k) -> new AtomicInteger()).incrementAndGet();
+            originalMessage = msg;
+        }
+
         @Override
         protected AbstractMRMessage takeMessageToTransmit(AbstractMRListener[] ll) {
             if (blockMessageQueue) {
@@ -139,11 +160,20 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
         xnetManager = (XNetTurnoutManager)InstanceManager.getDefault().getInstance(XNetSystemConnectionMemo.class).getTurnoutManager();
     }
 
+    /**
+     * If true, will clear errors at the end.
+     */
+    private boolean clearErrors;
+
     @After
     @Override
     public void tearDown(){
         tc = null;
         JUnitUtil.clearShutDownManager(); // put in place because AbstractMRTrafficController implementing subclass was not terminated properly
+        if (clearErrors) {
+            JUnitAppender.end();
+            JUnitAppender.resetUnexpectedMessageFlags(Level.ERROR);
+        }
         JUnitUtil.tearDown();
     }
 
@@ -337,8 +367,18 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
         public XNetReply getReply(int address, int output, boolean state);
     }
     
-    static class BusyLenzSimulator extends XNetTestSimulator.LZV100_USB {
+    class BusyLenzSimulator extends XNetTestSimulator.LZV100_USB {
         volatile AccRequestCallback cb;
+        Map<XNetMessage, XNetMessage> backToJMRIMessage = new IdentityHashMap<>();
+
+        @Override
+        protected XNetMessage readMessage() {
+            XNetMessage received = super.readMessage();
+            // the simulator deserializes messages from the stream; they are different objects
+            // than the original, so let's map them back with the help of hack in TrafficCOntroller:
+            backToJMRIMessage.put(received, originalMessage);
+            return received;
+        }
         
         @Override
         protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
@@ -388,16 +428,35 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
                 (m.getElement(2) & 0x08) == 0).collect(Collectors.toList());
         
         // show individual messages were NOT retransmitted at all, the "retransmition"
-        // is just a FAKE because of OFFs replicated in advance. Retries start at 5,
-        // and are decremented for each retransmission. All the messages have still 5:
+        // is just a FAKE because of OFFs replicated in advance. Counters for individual
+        // object instances are increased in 
         int index = 1;
+        XNetMessage last = null;
         for (XNetMessage m : justOFFs) {
-            System.err.println("Message #" + index + ": " + m + ", retries avail: " + m.getRetries());
+            // translate to the JMRI controller instance:
+            XNetMessage orig = simul.backToJMRIMessage.get(m);
+            if (orig == last) {
+                System.err.println("Message #" + index + ": retry previous");
+            } else {
+                AtomicInteger retries = retryCounters.get(orig);
+                System.err.println("Message #" + index + ": " + m + ", retries avail: " + retries.get());
+            }
+            last = orig;
             index++;
         }
 
         // 5 retransmissions are permitted by default, so after 3 rejected OFFs, some should be yet sent:
         assertTrue("3 OFFs were rejected by station, they must be repeated !", justOFFs.size() > 3);
+        
+        // there were 3 Busy to OFF message. So 1st message should be sent 3 times unsuccessfully, and once successfully.
+        // the other (and last) OFF should be sent without any repetition
+        XNetMessage orig = simul.backToJMRIMessage.get(justOFFs.get(0));
+        assertEquals(4, retryCounters.get(orig).get());
+        orig = simul.backToJMRIMessage.get(justOFFs.get(justOFFs.size() - 1));
+        assertEquals(1, retryCounters.get(orig).get());
+
+        // permit cleaning errors logged by TrafficController, all other checks OK
+        clearErrors = true;
     }
 
     @Test
@@ -466,5 +525,8 @@ public class XNetTrafficControllerTest extends jmri.jmrix.AbstractMRTrafficContr
         // the repeated OFF should have been in the captured outgoing messages before
         // the CS version request:
         assertEquals(0x52, outgoingAfterError.get(0).getElement(0));
+        
+        // permit cleaning errors logged by TrafficController, all other checks OK
+        clearErrors = true;
     }
 }
