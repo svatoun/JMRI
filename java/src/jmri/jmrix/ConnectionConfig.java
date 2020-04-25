@@ -75,4 +75,20 @@ public interface ConnectionConfig {
      * @return true if application needs to restart, false otherwise
      */
     public boolean isRestartRequired();
+    
+    /**
+     * Returns the connection type name. Unless the connection config implementation
+     * is shared between several connection types, should return the implementation
+     * class's {@link Class#getName()} for compatibility. 
+     * <p>
+     * The value must be exactly the same, as one of the values returned by 
+     * {@link ConnectionTypeList#getAvailableProtocolClasses()}.
+     * <p>
+     * The default implementation returns the class name.
+     * @return connection type name/identifier.
+     * @since 4.20
+     */
+    public default String typeName() {
+        return getClass().getName();
+    }
 }

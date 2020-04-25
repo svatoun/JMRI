@@ -22,6 +22,17 @@ public interface ConnectionTypeList extends JmriServiceProviderInterface {
     /**
      * Get a list of classes that can configure a layout connection for the
      * manufacturers specified in {@link #getManufacturers() }.
+     * Until JMRI 4.20, the list can only contain <b>fully qualified names</b>
+     * of implementation classes which implement {@link ConnectionConfig}.
+     * <p>
+     * From JMRI 4.20, the list can contain also factory methods: if the string
+     * contains a colon (:), the part before the colon is read as a fully qualified
+     * classname (with forward-compatible translation support), and the part after
+     * the colon is the number of <b>static no-arg method</b> which must return
+     * a {@link ConnectionConfig} instance.
+     * <p>
+     * This allows to eliminate classes, which only serve as identifiers with no
+     * important behaviour changes (i.e. added configuration parameters).
      *
      * @return an Array of classes or an empty Array if none
      */

@@ -3,6 +3,7 @@ package jmri.jmrix;
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
@@ -177,34 +178,30 @@ public class JmrixConfigPane extends JPanel implements PreferencesPanel {
         int n = 1;
         if (manuBox.getSelectedIndex() != 0) {
             for (String className : classConnectionNameList) {
-                try {
-                    ConnectionConfig config;
-                    if (original != null && original.getClass().getName().equals(className)) {
-                        config = original;
-                        log.debug("matched existing config object");
-                        modeBox.addItem(config.name());
-                        modeBox.setSelectedItem(config.name());
-                        if (classConnectionNameList.length == 1) {
-                            modeBox.setSelectedIndex(1);
-                        }
-                    } else {
-                        Class<?> cl = Class.forName(className);
-                        config = (ConnectionConfig) cl.getDeclaredConstructor().newInstance();
-                        if( !(config instanceof StreamConnectionConfig)) {
-                           // only include if the connection is not a 
-                           // StreamConnection.  Those connections require
-                           // additional context.
-                           modeBox.addItem(config.name());
-                        } else {
-                               continue;
-                        }
+                ConnectionConfig config;
+                if (original != null && original.typeName().equals(className)) {
+                    config = original;
+                    log.debug("matched existing config object");
+                    modeBox.addItem(config.name());
+                    modeBox.setSelectedItem(config.name());
+                    if (classConnectionNameList.length == 1) {
+                        modeBox.setSelectedIndex(1);
                     }
-                    classConnectionList[n++] = config;
-                } catch (NullPointerException e) {
-                    log.error("Attempt to load {} failed.", className, e);
-                } catch (InvocationTargetException | ClassNotFoundException | InstantiationException | IllegalAccessException | NoSuchMethodException e) {
-                    log.error("Attempt to load {} failed: {}.", className, e);
+                } else {
+                    config = createConfigInstance(className);
+                    if (config == null) {
+                        continue;
+                    }
+                    if( !(config instanceof StreamConnectionConfig)) {
+                       // only include if the connection is not a 
+                       // StreamConnection.  Those connections require
+                       // additional context.
+                       modeBox.addItem(config.name());
+                    } else {
+                       continue;
+                    }
                 }
+                classConnectionList[n++] = config;
             }
             if ((modeBox.getSelectedIndex() == 0) && (p.getComboBoxLastSelection((String) manuBox.getSelectedItem()) != null)) {
                 modeBox.setSelectedItem(p.getComboBoxLastSelection((String) manuBox.getSelectedItem()));
@@ -257,25 +254,18 @@ public class JmrixConfigPane extends JPanel implements PreferencesPanel {
         int n = 1;
         if (manuBox.getSelectedIndex() != 0) {
             for (String classConnectionNameList1 : classConnectionNameList) {
-                try {
-                    jmri.jmrix.ConnectionConfig config;
-                    Class<?> cl = Class.forName(classConnectionNameList1);
-                    config = (jmri.jmrix.ConnectionConfig) cl.getDeclaredConstructor().newInstance();
-                    if( !(config instanceof StreamConnectionConfig)) {
-                        // only include if the connection is not a 
-                        // StreamConnection.  Those connections require
-                        // additional context.
-                        modeBox.addItem(config.name());
-                    } else {
-                        continue;
-                    }
-                    classConnectionList[n++] = config;
-                    if (classConnectionNameList.length == 1) {
-                        modeBox.setSelectedIndex(1);
-                    }
-                } catch (InvocationTargetException | NullPointerException | ClassNotFoundException 
-                                | InstantiationException | IllegalAccessException | NoSuchMethodException e) {
-                    log.warn("Attempt to load {} failed: {}", classConnectionNameList1, e);
+                jmri.jmrix.ConnectionConfig config = createConfigInstance(classConnectionNameList1);
+                if(config != null && !(config instanceof StreamConnectionConfig)) {
+                    // only include if the connection is not a 
+                    // StreamConnection.  Those connections require
+                    // additional context.
+                    modeBox.addItem(config.name());
+                } else {
+                    continue;
+                }
+                classConnectionList[n++] = config;
+                if (classConnectionNameList.length == 1) {
+                    modeBox.setSelectedIndex(1);
                 }
             }
             if (p.getComboBoxLastSelection((String) manuBox.getSelectedItem()) != null) {
@@ -286,6 +276,46 @@ public class JmrixConfigPane extends JPanel implements PreferencesPanel {
                 ccCurrent.dispose();
             }
         }
+    }
+    
+    public static ConnectionConfig createConfigInstance(String instanceSpec) {
+        // support delegation of construction:
+        String className;
+        String factoryMethodName = null;
+        int colon = instanceSpec.indexOf(':');
+        if (colon != -1) {
+            className = instanceSpec.substring(0, colon);
+            factoryMethodName = instanceSpec.substring(colon + 1);
+            if (factoryMethodName.isEmpty()) {
+                log.warn("Invalid factory specification: {}", instanceSpec);
+                return null;
+            }
+        } else {
+            className = instanceSpec;
+        }
+        try {
+            Class<?> cl = Class.forName(className);
+            jmri.jmrix.ConnectionConfig cfg;
+            
+            if (factoryMethodName == null) {
+                cfg = (jmri.jmrix.ConnectionConfig) cl.getDeclaredConstructor().newInstance();
+            } else {
+                Method factoryMethod = cl.getDeclaredMethod(factoryMethodName);
+                cfg = (jmri.jmrix.ConnectionConfig)factoryMethod.invoke(null);
+            }
+            // sanity check of the backwards typename mapping:
+            if (cfg != null && !cfg.typeName().equals(instanceSpec)) {
+                log.warn("Incorrect type name for {}. Ignoring...", cfg);
+                return null;
+            } else {
+                return cfg;
+            }
+        } catch (ReflectiveOperationException | NullPointerException e) {
+            // XXX why NPE is caught ? Either all runtime/errors exc. ThreadDeath
+            // or no programmer error should be masked.
+            log.warn("Attempt to load {} failed: {}", instanceSpec, e);
+        }
+        return null;
     }
 
     void selection() {
