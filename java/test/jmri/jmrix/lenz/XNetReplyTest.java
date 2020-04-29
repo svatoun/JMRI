@@ -2,8 +2,12 @@ package jmri.jmrix.lenz;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Optional;
+import jmri.Turnout;
 import jmri.util.JUnitUtil;
 import org.junit.After;
 import org.junit.Assert;
@@ -1405,77 +1409,203 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         assertEquals(0, r.getFeedbackMessageItems());
     }
     
-    @Test
-    public void testReplyConsumed() {
-        // try on a random non-feedback reply
-        XNetReply r = new XNetReply("E3 32 00 04 C5");
-        assertFalse("Initialy must not be consumed", r.isConsumed());
-        assertFalse("Odd accessory action OK", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertFalse("Even accessory action OK", r.isConsumed(r.getFeedbackConsumedBit(2)));
+    /**
+     * Checks that all information is consistent from the Feedback item, 
+     * and are consistent with data served from XNetReply.
+     * 
+     * @param reply the original reply
+     * @param startByte start byte where the Feedback item came from
+     * @param address the expected address
+     * @param aStatus the expected status
+     * @param tType the expected feedback type
+     * @param lowerNibble 
+     */
+    private void assertTurnoutFeedbackData(XNetReply reply, int startByte, int address, 
+            int aStatus, int tType, FeedbackItem lowerNibble) {
+        
+        assertFalse("Must not be encoder", lowerNibble.isEncoder());
+        assertNull("Encoder functions disabled", lowerNibble.getEncoderStatus(address));
+        assertEquals("Motion same as reply", reply.isFeedbackMotionComplete(startByte), lowerNibble.isMotionComplete());
+        if ((address & 0x01) == 1) {
+            assertTrue("Accepts reply's odd address", lowerNibble.matchesAddress(reply.getTurnoutMsgAddr(startByte)));
+        } else {
+            assertTrue("Accepts reply's even address", lowerNibble.matchesAddress(reply.getTurnoutMsgAddr(startByte) + 1));
+        }
+        assertEquals("Solicited same as reply", reply.isUnsolicited(), lowerNibble.isUnsolicited());
+        
+        assertTrue("Must be accessory", lowerNibble.isAccessory());
+        assertEquals("Invalid feedback type", tType, lowerNibble.getType());
+        assertEquals("Raw accessory status", aStatus, lowerNibble.getAccessoryStatus());
 
-        // consume the action
-        assertFalse("Action must be permitted", r.markConsumed(XNetReply.CONSUMED_ACTION));
-        assertTrue("Reply was consumed", r.isConsumed());
-        assertTrue("Second action must be blocked", r.markConsumed(XNetReply.CONSUMED_ACTION));
+        int lowAddress = (address & 0x01) > 0 ? address - 1 : address - 2;
+        int pairAddress = (address & 0x01) > 0 ? address + 1 : address - 1;
+        int highAddress = (address & 0x01) > 0 ? address + 2 : address + 1;
         
-        // Check that on non-feedback, this block actions for both odd and even accessories
-        assertTrue("Odd accessory action blocked", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertTrue("Even accessory action blocked", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertTrue("Odd accessory action blocked", r.markFeedbackActionConsumed(1));
-        assertTrue("Even accessory action blocked", r.markFeedbackActionConsumed(2));
+        assertTrue("Must accept own address", lowerNibble.matchesAddress(address));
+        assertFalse("Must not accept other pair's address", lowerNibble.matchesAddress(pairAddress));
+        assertFalse("Must not accept other addresses", lowerNibble.matchesAddress(lowAddress));
+        assertFalse("Must not accept other addresses", lowerNibble.matchesAddress(highAddress));
+
+        int tStatus;
+        switch (aStatus) {
+            case 0x00: tStatus = -1; break;
+            case 0x01: tStatus = Turnout.CLOSED; break;
+            case 0x02: tStatus = Turnout.THROWN; break;
+            case 0x03: tStatus = -1; break;
+            default:
+                throw new IllegalArgumentException();
+        }
+        assertEquals("Turnout status", tStatus, lowerNibble.getTurnoutStatus());
         
-        // real 2nd action must be OK
-        assertFalse("Different action must be still OK", r.markConsumed(XNetReply.CONSUMED_ACTION_EVEN));
+        // check the paired item:
+        FeedbackItem paired = lowerNibble.pairedAccessoryItem();
+        assertNotNull("Accessory fedbacks are always in pairs", paired);
+        assertFalse("Must not be encoder", paired.isEncoder());
+        assertTrue("Must be accessory", paired.isAccessory());
+        assertEquals("Invalid feedback type", tType, paired.getType());
+        assertEquals("Solicited same as reply", reply.isUnsolicited(), paired.isUnsolicited());
+        assertFalse("Must not accept pair's address", paired.matchesAddress(address));
+    }
+    
+    /**
+     * Checks that information can be read from single-item feedback and
+     * is consistent.
+     */
+    @Test
+    public void testSingleFeedbackTurnoutItem() {
+        // 5 * 4, lower nibble = 21 (N/A) +22 (T)
+        // movement NOT complete; turnout WITH feedback.
+        XNetReply r = new XNetReply("42 05 28 0f");
+        Optional<FeedbackItem> selected = r.selectTurnoutFeedback(20);
+        assertFalse("Incorrect turnout number", selected.isPresent());
+        selected = r.selectTurnoutFeedback(23);
+        assertFalse("Incorrect turnout number", selected.isPresent());
+        
+        selected = r.selectTurnoutFeedback(21);
+        assertTrue(selected.isPresent());
+        
+        FeedbackItem oddItem = selected.get();
+
+        assertTrue("Motion completed", oddItem.isMotionComplete());
+        assertTrue("Initially unsolicited", oddItem.isUnsolicited());
+        assertTurnoutFeedbackData(r, 1, 21, 0, 1, oddItem);
+        
+        selected = r.selectTurnoutFeedback(22);
+        assertTrue(selected.isPresent());
+        
+        FeedbackItem evenItem = selected.get();
+        assertTurnoutFeedbackData(r, 1, 22, 2, 1, evenItem);
+        
+        // make solicited:
+        oddItem.resetUnsolicited();
+        assertFalse(r.isUnsolicited());
+        
+        // 5 * 4, upper nibble = 23 (C) + 24 (T)
+        // movement IS complete; turnout WITHOUT feedback.
+        r = new XNetReply("42 05 95 0f");
+        selected = r.selectTurnoutFeedback(23);
+        assertTrue(selected.isPresent());
+        
+        oddItem = selected.get();
+        assertFalse("Motion incomplete", oddItem.isMotionComplete());
+        assertTurnoutFeedbackData(r, 1, 23, 1, 0, oddItem);
+        
+        selected = r.selectTurnoutFeedback(24);
+        assertTrue(selected.isPresent());
+        evenItem = selected.get();
+        assertTurnoutFeedbackData(r, 1, 24, 1, 0, evenItem);
     }
     
     @Test
-    public void testFeedbackReplyConsumedOnNonFeedback() {
-        // try on a random non-feedback reply
-        XNetReply r = new XNetReply("E3 32 00 04 C5");
-        assertFalse("Odd accessory action OK", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertFalse("Even accessory action OK", r.isConsumed(r.getFeedbackConsumedBit(2)));
-
-        // consume as if it was feedback
-        assertFalse("Odd accessory action OK", r.markFeedbackActionConsumed(1));
-        // the other accessory should also block since the message was not, in fact, feedback
-        assertTrue("Even accessory action now blocked", r.markFeedbackActionConsumed(2));
+    public void testSingleEncoderModuleFeedback() {
+        // feedback 5 * 8  + 4 (upper nibble) (+1) = 45
+        XNetReply r = new XNetReply("42 05 58 0f");
         
-        assertTrue("Reply was consumed", r.isConsumed());
-        assertTrue("Odd accessory action now blocked", r.markFeedbackActionConsumed(1));
-        assertTrue("Odd accessory action blocked", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertTrue("Even accessory action blocked", r.isConsumed(r.getFeedbackConsumedBit(1)));
+        assertNull(r.selectModuleFeedback(44));
+        
+        for (int i = 45; i < 45 + 4; i++) {
+            Boolean b = r.selectModuleFeedback(i);
+            assertNotNull(b);
+            // the highest bit in the nibble is set
+            assertEquals("sensor id " + i, i == 48, b);
+        }
+        
+        assertNull(r.selectModuleFeedback(49));
+        
+        r = new XNetReply("42 04 41 0f");
 
-        // the opposite direction: mark even, check odd
-        r = new XNetReply("E3 32 00 04 C5");
-        assertFalse("Even accessory action OK", r.markFeedbackActionConsumed(2));
-        assertTrue("Odd accessory action now blocked", r.markFeedbackActionConsumed(1));
-
-        assertTrue("Reply was consumed", r.isConsumed());
-        assertTrue("Odd accessory action now blocked", r.markFeedbackActionConsumed(1));
-        assertTrue("Odd accessory action blocked", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertTrue("Even accessory action blocked", r.isConsumed(r.getFeedbackConsumedBit(1)));
+        assertNull(r.selectModuleFeedback(32));
+        for (int i = 33; i < 33 + 4; i++) {
+            Boolean b = r.selectModuleFeedback(i);
+            assertNotNull(b);
+            // the lowest bit in the nibble is set
+            assertEquals("sensor id " + i, i == 33, b);
+        }
+        assertNull(r.selectModuleFeedback(37));
     }
-
+    
     @Test
-    public void testFeedbackReplyConsumed() {
-        XNetReply r = new XNetReply("42 05 48 0f");
-        assertFalse("Initialy must not be consumed", r.isConsumed());
-        assertFalse("Odd accessory action OK", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertFalse("Even accessory action OK", r.isConsumed(r.getFeedbackConsumedBit(2)));
+    public void testMultipleFeedbackTurnoutItem() {
+        // 1st pair: 21 (T) + 22 (C), with feedback
+        // 2nd pair: encoder feedback, NOT 25+26!
+        // 3rd pair: 31 (C) + 32 (N), without feedback, motion incomplete
+        XNetReply r = new XNetReply("46 05 29 06 48 07 91 0f");
+        
+        Optional<FeedbackItem> selected;
+        FeedbackItem odd;
+        FeedbackItem even;
+        selected = r.selectTurnoutFeedback(21);
+        assertTrue(selected.isPresent());
+        odd = selected.get();
+        selected = r.selectTurnoutFeedback(22);
+        assertTrue(selected.isPresent());
+        even = selected.get();
+        assertTrue(odd.isMotionComplete());
+        assertTurnoutFeedbackData(r, 1, 21, 1, 1, odd);
+        assertTurnoutFeedbackData(r, 1, 22, 2, 1, even);
 
-        // mark action on odd
-        assertFalse("Odd accessory action OK", r.markFeedbackActionConsumed(1));
-        assertTrue("Odd accessory bit true", r.isConsumed(r.getFeedbackConsumedBit(1)));
-        assertTrue("Odd accessory action now blocked", r.markFeedbackActionConsumed(1));
+        // check that 
+        selected = r.selectTurnoutFeedback(25);
+        assertFalse(selected.isPresent());
+        selected = r.selectTurnoutFeedback(26);
+        assertFalse(selected.isPresent());
+
+        selected = r.selectTurnoutFeedback(31);
+        assertTrue(selected.isPresent());
+        odd = selected.get();
+        selected = r.selectTurnoutFeedback(32);
+        assertTrue(selected.isPresent());
+        even = selected.get();
         
-        assertFalse("Even accessory action bit false", r.isConsumed(r.getFeedbackConsumedBit(2)));
-        
-        // mark action on even
-        assertFalse("Even accessory action remains OK", r.markFeedbackActionConsumed(2));
-        assertTrue("Even accessory bit true", r.isConsumed(r.getFeedbackConsumedBit(2)));
-        assertTrue("Even accessory 2nd action blocked", r.markFeedbackActionConsumed(2));
+        assertFalse(odd.isMotionComplete());
+        assertTurnoutFeedbackData(r, 5, 31, 1, 0, odd);
+        assertTurnoutFeedbackData(r, 5, 32, 0, 0, even);
     }
-
+    
+    @Test
+    public void testMultipleEncoderModuleFeedback() {
+        // feedback 6 * 8  (lower nibble) (+1) = 49
+        XNetReply r = new XNetReply("46 05 29 06 48 07 91 0f");
+        
+        // the 05-29 is a turnout feedback: must not be reported
+        // as encoder 05 * 8
+        assertNull(r.selectModuleFeedback(41));
+        assertNull(r.selectModuleFeedback(44));
+        assertNull(r.selectModuleFeedback(48));
+        
+        for (int i = 49; i < 49 + 4; i++) {
+            Boolean b = r.selectModuleFeedback(i);
+            assertNotNull(b);
+            // the highest bit in the nibble is set
+            assertEquals("sensor id " + i, i == (49 + 3), b);
+        }
+        
+        // 07-91 is again a turnout, must not be mistaken for upper nibble of
+        // encoder 7
+        assertNull(r.selectModuleFeedback(7 * 8 + 4 + 1));
+    }
+    
+    // The minimal setup for log4J
     @Before
     @Override
     public void setUp() {

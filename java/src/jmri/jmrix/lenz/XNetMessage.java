@@ -40,6 +40,11 @@ public class XNetMessage extends jmri.jmrix.AbstractMRMessage implements Seriali
     private static int XNetMessageTimeout = 5000;
 
     /**
+     * Diagnostics: the time the message was created.
+     */
+    private final long timeCreated = System.currentTimeMillis();
+    
+    /**
      * Create a new object, representing a specific-length message.
      *
      * @param len Total bytes in message, including opcode and error-detection
@@ -2175,6 +2180,14 @@ public class XNetMessage extends jmri.jmrix.AbstractMRMessage implements Seriali
             text += "F28 " + Bundle.getMessage(FUNCTION_MOMENTARY) + "; ";
         }
         return text;
+    }
+
+    /**
+     * Returns the time this message was created, as UNIX time ms.
+     * @return creation time (UNIX time)
+     */
+    public long getTimeCreated() {
+        return timeCreated;
     }
 
     // initialize logging

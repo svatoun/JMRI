@@ -232,10 +232,10 @@ public abstract class XNetTrafficController extends AbstractMRTrafficController 
     protected void loadChars(AbstractMRReply msg, java.io.DataInputStream istream) throws java.io.IOException {
         int i;
         for (i = 0; i < msg.maxSize(); i++) {
+            byte char1 = readByteProtected(istream);
             if (i == 0) {
                 notifyMessageStart(msg);
             }
-            byte char1 = readByteProtected(istream);
             msg.setElement(i, char1 & 0xFF);
             if (endOfMessage(msg)) {
                 break;
