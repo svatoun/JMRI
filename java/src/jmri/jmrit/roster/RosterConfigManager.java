@@ -3,6 +3,7 @@ package jmri.jmrit.roster;
 import java.beans.PropertyChangeEvent;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Set;
@@ -200,7 +201,7 @@ public class RosterConfigManager extends AbstractPreferencesManager {
      * @return the roster for the profile
      */
     @Nonnull
-    public Roster getRoster(@CheckForNull Profile profile) {
+    public synchronized Roster getRoster(@CheckForNull Profile profile) {
         Roster roster = rosters.get(profile);
         if (roster == null) {
             roster = new Roster();
