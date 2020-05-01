@@ -27,7 +27,7 @@ public interface ConnectionTypeList extends JmriServiceProviderInterface {
      * <p>
      * From JMRI 4.20, the list can contain also factory methods: if the string
      * contains a colon (:), the part before the colon is read as a fully qualified
-     * classname (with forward-compatible translation support), and the part after
+     * class name (with forward-compatible translation support), and the part after
      * the colon is the number of <b>static no-arg method</b> which must return
      * a {@link ConnectionConfig} instance.
      * <p>

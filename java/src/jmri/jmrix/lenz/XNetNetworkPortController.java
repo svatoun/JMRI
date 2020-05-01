@@ -19,7 +19,7 @@ public abstract class XNetNetworkPortController extends jmri.jmrix.AbstractNetwo
         allowConnectionRecovery = true; // all classes derived from this class
         // can recover from a connection failure
     }
-
+    
     /**
      * Check that this object is ready to operate. This is a question of
      * configuration, not transient hardware status.
@@ -93,7 +93,7 @@ public abstract class XNetNetworkPortController extends jmri.jmrix.AbstractNetwo
     protected void resetupConnection() {
         this.getSystemConnectionMemo().getXNetTrafficController().connectPort(this);
     }
-
+    
     private static final Logger log = LoggerFactory.getLogger(XNetNetworkPortController.class);
 
 }

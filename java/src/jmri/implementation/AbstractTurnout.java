@@ -565,7 +565,7 @@ public abstract class AbstractTurnout extends AbstractNamedBean implements
     /*
      * Support for turnout automation (see TurnoutOperation and related classes).
      */
-    protected TurnoutOperator myOperator;
+    protected volatile TurnoutOperator myOperator;
 
     protected TurnoutOperation myTurnoutOperation;
 

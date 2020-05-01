@@ -29,7 +29,7 @@ public class LIUSBEthernetAdapter extends XNetNetworkPortController {
         setPort(COMMUNICATION_TCP_PORT);
         this.manufacturerName = jmri.jmrix.lenz.LenzConnectionTypeList.LENZ;
     }
-
+    
     @Override
     public void connect() throws java.io.IOException {
         super.connect();
