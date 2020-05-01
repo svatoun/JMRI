@@ -5,6 +5,8 @@
  */
 package jmri.jmrix.lenzplus;
 
+import jmri.jmrix.lenzplus.port.XNetPacketizerDelegate;
+import jmri.jmrix.lenzplus.port.XNetProtocol;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;

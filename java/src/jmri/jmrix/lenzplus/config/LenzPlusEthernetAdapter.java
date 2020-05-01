@@ -9,7 +9,7 @@ import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.XNetInitializationManager;
 import jmri.jmrix.lenz.XNetTrafficController;
 import jmri.jmrix.lenz.liusbethernet.LIUSBEthernetAdapter;
-import jmri.jmrix.lenzplus.USBPacketizerSupport;
+import jmri.jmrix.lenzplus.port.USBPacketizerSupport;
 import jmri.jmrix.lenzplus.XNetPlusTrafficController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

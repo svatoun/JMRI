@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package jmri.jmrix.lenz.plus;
+package jmri.jmrix.lenzplus;
 
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
@@ -25,12 +25,15 @@ import jmri.jmrix.lenz.XNetReply;
  */
 public class XNetAction {
     /**
-     * The leading message.
+     * The initial command message. There may be subsequent commands
+     * before the whole Action completes.
      */
     protected final CommandState   command;
 
     /**
-     * The target recipient for the command's outcome.
+     * The target recipient for the command's outcome. WeakReference
+     * so that dangling XNetActions will not keep layout objects in
+     * memory.
      */
     private final Reference<XNetListener>  target;
 

@@ -3,11 +3,9 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package jmri.jmrix.lenz.plus;
+package jmri.jmrix.lenzplus;
 
-import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
-import jmri.jmrix.lenz.XNetReply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,6 +13,9 @@ import org.slf4j.LoggerFactory;
  * Captures processing state for an {@link XNetMessage}. The state is separated
  * from XNetMessage because it should not be messed up by regular clients: the
  * state controls the command-reply protocol of XPressNet.
+ * <p>
+ * Otherwise it could be directly on a {@link XNetMessage}, as there's 1:1 mapping
+ * between CommandState and an outgoing message.
  * 
  * @author sdedic
  */

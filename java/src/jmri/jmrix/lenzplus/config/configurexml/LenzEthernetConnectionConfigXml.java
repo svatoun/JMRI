@@ -3,7 +3,7 @@ package jmri.jmrix.lenzplus.config.configurexml;
 import jmri.jmrix.configurexml.AbstractNetworkConnectionConfigXml;
 import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.liusbethernet.LIUSBEthernetAdapter;
-import jmri.jmrix.lenzplus.USBPacketizerSupport;
+import jmri.jmrix.lenzplus.port.USBPacketizerSupport;
 import jmri.jmrix.lenzplus.XNetPlusTrafficController;
 import jmri.jmrix.lenzplus.config.LenzPlusSystemConnectionMemo;
 import jmri.jmrix.lenzplus.config.ConnectionType;
