@@ -4,8 +4,6 @@ import java.util.Optional;
 import java.util.function.Function;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Represents a single response from the XpressNet.
@@ -158,7 +156,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
             return -1;
         }
         int address = (a1 & 0xff) * 4 + 1;
-        if ((a2 & 0x10) > 0) {
+        if ((a2 & 0x10) != 0) {
             address += 2;
         }
         return address;
@@ -614,7 +612,6 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         reallyUnsolicited = false;
     }
     
-
     /**
      * Mask to identify a turnout feedback + correct nibble. Turnout types differ in
      * 6th bit, so it's left out (is variable).
@@ -674,7 +671,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         // feedback address directly addresses 8-bit module, XpressNet spec 3.0:2.1.11.
         int s = sensorNumber - 1;
         int baseAddress = (s / 8);
-        int selector2 = (s & 0x04) > 0 ? 
+        int selector2 = (s & 0x04) != 0 ? 
                 FEEDBACK_TYPE_FBMODULE | FEEDBACK_HIGH_NIBBLE : 
                 FEEDBACK_TYPE_FBMODULE;
         int res = findFeedbackData(baseAddress, selector2, FEEDBACK_MODULE_MASK);
@@ -712,7 +709,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         int a = accessoryNumber - 1;
         int base = (a / 4);
         // the mask makes the turnout feedback type bit irrelevant
-        int selector2 = (a & 0x02) > 0 ? FEEDBACK_HIGH_NIBBLE : 0;
+        int selector2 = (a & 0x02) != 0 ? FEEDBACK_HIGH_NIBBLE : 0;
         int r = findFeedbackData(base, selector2, FEEDBACK_TURNOUT_MASK);
         if (r == -1) {
             return Optional.empty();
@@ -1585,6 +1582,4 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         }
         return (text);
     }
-
-    private static final Logger log = LoggerFactory.getLogger(XNetReply.class);
 }

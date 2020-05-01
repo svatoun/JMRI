@@ -8,6 +8,7 @@ import jmri.jmrix.lenzplus.XNetPlusTrafficController;
 import jmri.jmrix.lenzplus.config.LenzPlusSystemConnectionMemo;
 import jmri.jmrix.lenzplus.config.ConnectionType;
 import jmri.jmrix.lenzplus.config.LenzEthernetConnectionConfig;
+import jmri.jmrix.lenzplus.config.LenzPlusEthernetAdapter;
 import org.jdom2.Element;
 
 /**
@@ -34,12 +35,8 @@ public class LenzEthernetConnectionConfigXml extends AbstractNetworkConnectionCo
             return;
         }
         LenzPlusSystemConnectionMemo memo = new LenzPlusSystemConnectionMemo();
-        LIUSBEthernetAdapter a = new LIUSBEthernetAdapter();
+        LenzPlusEthernetAdapter a = new LenzPlusEthernetAdapter();
         a.setSystemConnectionMemo(memo);
-        a.setPacketizer(
-                new XNetPlusTrafficController(new LenzCommandStation()).
-                        setPacketizer(new USBPacketizerSupport())
-        );
         adapter = a;
     }
 

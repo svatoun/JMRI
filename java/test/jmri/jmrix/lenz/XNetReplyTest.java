@@ -18,7 +18,7 @@ import org.junit.Test;
  * Tests for the jmri.jmrix.lenz.XNetReply class
  *
  * @author Bob Jacobsen
- * @author  Paul Bender Copyright (C) 2004-2018
+ * @author  Paul Bender Copyright (C) 2004-2018	
  */
 public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
        
@@ -428,7 +428,11 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         r = new XNetReply("42 05 08 4F");
         Assert.assertEquals("Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(0));
 
+<<<<<<< HEAD
         // ask for address 21
+=======
+	    // ask for address 21
+>>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(1));
         // feedback message for turnout 22, with invalid state.
         r = new XNetReply("42 05 0C 45");
@@ -440,9 +444,15 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         // feedback message for turnout 21, thrown
         r = new XNetReply("42 05 02 45");
         Assert.assertEquals("Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(1));
+<<<<<<< HEAD
         // ask for address 22.
         Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(0));
         // send invalid value for parameter (only 0 and 1 are valid).
+=======
+	    // ask for address 22.
+        Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(0));
+	    // send invalid value for parameter (only 0 and 1 are valid).
+>>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(3));
         // feedback message for turnout 21, with invalid state.
         r = new XNetReply("42 05 03 47");
@@ -465,7 +475,11 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         r = new XNetReply("42 05 08 4F");
         Assert.assertEquals("Broadcast Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(1,0));
 
+<<<<<<< HEAD
         // ask for address 21
+=======
+	    // ask for address 21
+>>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 1));
         // feedback message for turnout 22, with invalid state.
         r = new XNetReply("42 05 0C 45");
@@ -476,9 +490,15 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         // feedback message for turnout 21, thrown
         r = new XNetReply("42 05 02 45");
         Assert.assertEquals("Broadcast Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(1,1));
+<<<<<<< HEAD
         // ask for address 22.
         Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 0));
         // send invalid value for parameter (only 0 and 1 are valid).
+=======
+	    // ask for address 22.
+        Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 0));
+	    // send invalid value for parameter (only 0 and 1 are valid).
+>>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 3));
         // feedback message for turnout 21, with invalid state.
         r = new XNetReply("42 05 03 47");
@@ -1418,47 +1438,52 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
      * @param address the expected address
      * @param aStatus the expected status
      * @param tType the expected feedback type
-     * @param lowerNibble 
+     * @param fItem the expected feedback address 
      */
     private void assertTurnoutFeedbackData(XNetReply reply, int startByte, int address, 
-            int aStatus, int tType, FeedbackItem lowerNibble) {
+            int aStatus, int tType, FeedbackItem fItem) {
         
-        assertFalse("Must not be encoder", lowerNibble.isEncoder());
-        assertNull("Encoder functions disabled", lowerNibble.getEncoderStatus(address));
-        assertEquals("Motion same as reply", reply.isFeedbackMotionComplete(startByte), lowerNibble.isMotionComplete());
+        // general accessory feedback constraints
+        assertFalse("Must not be encoder", fItem.isEncoder());
+        assertNull("Encoder functions disabled", fItem.getEncoderStatus(address));
+        assertTrue("Must be accessory", fItem.isAccessory());
+        
+        // info consistent with the reply's original accessors
+        assertEquals("Motion same as reply", reply.isFeedbackMotionComplete(startByte), fItem.isMotionComplete());
         if ((address & 0x01) == 1) {
-            assertTrue("Accepts reply's odd address", lowerNibble.matchesAddress(reply.getTurnoutMsgAddr(startByte)));
+            assertTrue("Accepts reply's odd address", fItem.matchesAddress(reply.getTurnoutMsgAddr(startByte)));
+            assertEquals(address, reply.getTurnoutMsgAddr(startByte));
         } else {
-            assertTrue("Accepts reply's even address", lowerNibble.matchesAddress(reply.getTurnoutMsgAddr(startByte) + 1));
+            assertTrue("Accepts reply's even address", fItem.matchesAddress(reply.getTurnoutMsgAddr(startByte) + 1));
+            assertEquals(address, reply.getTurnoutMsgAddr(startByte) + 1);
         }
-        assertEquals("Solicited same as reply", reply.isUnsolicited(), lowerNibble.isUnsolicited());
+        assertEquals("Solicited same as reply", reply.isUnsolicited(), fItem.isUnsolicited());
         
-        assertTrue("Must be accessory", lowerNibble.isAccessory());
-        assertEquals("Invalid feedback type", tType, lowerNibble.getType());
-        assertEquals("Raw accessory status", aStatus, lowerNibble.getAccessoryStatus());
+        assertEquals("Invalid feedback type", tType, fItem.getType());
+        assertEquals("Raw accessory status", aStatus, fItem.getAccessoryStatus());
 
         int lowAddress = (address & 0x01) > 0 ? address - 1 : address - 2;
         int pairAddress = (address & 0x01) > 0 ? address + 1 : address - 1;
         int highAddress = (address & 0x01) > 0 ? address + 2 : address + 1;
         
-        assertTrue("Must accept own address", lowerNibble.matchesAddress(address));
-        assertFalse("Must not accept other pair's address", lowerNibble.matchesAddress(pairAddress));
-        assertFalse("Must not accept other addresses", lowerNibble.matchesAddress(lowAddress));
-        assertFalse("Must not accept other addresses", lowerNibble.matchesAddress(highAddress));
+        assertTrue("Must accept own address", fItem.matchesAddress(address));
+        assertFalse("Must not accept other pair's address", fItem.matchesAddress(pairAddress));
+        assertFalse("Must not accept other addresses", fItem.matchesAddress(lowAddress));
+        assertFalse("Must not accept other addresses", fItem.matchesAddress(highAddress));
 
         int tStatus;
         switch (aStatus) {
-            case 0x00: tStatus = -1; break;
+            case 0x00: tStatus = -1; break; // not operated; shouldn't be UNKNOWN ?
             case 0x01: tStatus = Turnout.CLOSED; break;
             case 0x02: tStatus = Turnout.THROWN; break;
-            case 0x03: tStatus = -1; break;
+            case 0x03: tStatus = -1; break; // invalid; shouldn't be INCONSISTENT ?
             default:
                 throw new IllegalArgumentException();
         }
-        assertEquals("Turnout status", tStatus, lowerNibble.getTurnoutStatus());
+        assertEquals("Turnout status", tStatus, fItem.getTurnoutStatus());
         
         // check the paired item:
-        FeedbackItem paired = lowerNibble.pairedAccessoryItem();
+        FeedbackItem paired = fItem.pairedAccessoryItem();
         assertNotNull("Accessory fedbacks are always in pairs", paired);
         assertFalse("Must not be encoder", paired.isEncoder());
         assertTrue("Must be accessory", paired.isAccessory());
@@ -1469,7 +1494,7 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
     
     /**
      * Checks that information can be read from single-item feedback and
-     * is consistent.
+     * the reply are consistent.
      */
     @Test
     public void testSingleFeedbackTurnoutItem() {
@@ -1514,6 +1539,72 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         assertTrue(selected.isPresent());
         evenItem = selected.get();
         assertTurnoutFeedbackData(r, 1, 24, 1, 0, evenItem);
+    }
+    
+    /**
+     * Checks that feedback module item gives invalid / erroneous / null
+     * information when used as accessory.
+     */
+    @Test
+    public void testOtherRepliesAsAccessoryFeedback() {
+        XNetReply r = new XNetReply("42 05 58 0f");
+        // test directly the item
+        FeedbackItem item = new FeedbackItem(r, 45, 0x58);
+        assertEquals(45, item.getAddress());
+        for (int a = 45; a < 45 + 4; a++) {
+            assertTrue(item.matchesAddress(a));
+            // last bit is set, all others are false.
+            assertEquals("Bit state for sensor " + a, a == 48, item.getEncoderStatus(a));
+        }
+        // does not match accessory for 0x05, 0x58
+        assertFalse(item.matchesAddress(21));
+        assertEquals(3, item.getAccessoryStatus());
+        assertNull(item.pairedAccessoryItem());
+
+        // check that no turnout feedback can be selected
+        for (int i = 1 ; i < 1024; i++) {
+            assertFalse(r.selectTurnoutFeedback(i).isPresent());
+        }
+        
+        // no accessory feedback present
+        r = new XNetReply("E3 40 C1 04 61");
+        for (int i = 1 ; i < 1024; i++) {
+            assertFalse(r.selectTurnoutFeedback(i).isPresent());
+        }
+    }
+    
+    /**
+     * Checks that encoder feedback will return null for turnout
+     * feedbacks.
+     */
+    @Test
+    public void testOtherRepliesAsEncoder() {
+        XNetReply r = new XNetReply("42 05 28 0f");
+        for (int i = 1 ; i < 1024; i++) {
+            assertNull(r.selectModuleFeedback(i));
+        }
+        r = new XNetReply("E3 40 C1 04 61");
+        for (int i = 1 ; i < 1024; i++) {
+            assertNull(r.selectModuleFeedback(i));
+        }
+
+    }
+
+    
+    /**
+     * Checks that select will filter out accessories with an incorrect state.
+     */
+    @Test
+    public void testInvalidAccessoryStateFiltered() {
+        XNetReply r = new XNetReply("42 05 2B 0f");
+        Optional<FeedbackItem> opt = r.selectTurnoutFeedback(21);
+        assertFalse(opt.isPresent());
+        assertEquals(-1, r.getTurnoutStatus(1));
+        
+        opt = r.selectTurnoutFeedback(22);
+        assertTrue(opt.isPresent());
+        assertEquals(Turnout.THROWN, opt.get().getTurnoutStatus());
+        assertEquals(r.getTurnoutStatus(0), opt.get().getTurnoutStatus());
     }
     
     @Test

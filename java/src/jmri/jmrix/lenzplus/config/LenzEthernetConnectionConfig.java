@@ -34,13 +34,13 @@ public class LenzEthernetConnectionConfig extends ConnectionConfig {
     }
     
     protected void setInstance() {
-        super.setInstance();
+        if (adapter != null) {
+            return;
+        }
+        LenzPlusEthernetAdapter a = new LenzPlusEthernetAdapter();
         LenzPlusSystemConnectionMemo memo = new LenzPlusSystemConnectionMemo();
-        adapter.setSystemConnectionMemo(memo);
-        ((LIUSBEthernetAdapter)adapter).setPacketizer(
-                new XNetPlusTrafficController(new LenzCommandStation()).
-                        setPacketizer(new USBPacketizerSupport())
-        );
+        a.setSystemConnectionMemo(memo);
+        adapter = a;
     }
     
     public ConnectionType getFlavour() {

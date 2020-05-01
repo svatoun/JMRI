@@ -9,6 +9,7 @@ import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.XNetInitializationManager;
 import jmri.jmrix.lenz.XNetTrafficController;
 import jmri.jmrix.lenz.liusbethernet.LIUSBEthernetAdapter;
+import jmri.jmrix.lenzplus.USBPacketizerSupport;
 import jmri.jmrix.lenzplus.XNetPlusTrafficController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +23,8 @@ public class LenzPlusEthernetAdapter extends LIUSBEthernetAdapter {
     public void configure() {
         log.debug("configure called");
         // connect to a packetizing traffic controller
-        XNetTrafficController packets = new XNetPlusTrafficController(new LenzCommandStation());
+        XNetTrafficController packets = new XNetPlusTrafficController(new LenzCommandStation()).
+                        setPacketizer(new USBPacketizerSupport());
         packets.connectPort(this);
 
         // start operation
