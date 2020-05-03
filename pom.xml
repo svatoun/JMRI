@@ -282,7 +282,7 @@
             </build>
         </profile>
         <profile>
-            <!-- 
+            <!--
                 The profile disables if tests are run in debug mode, so Jacoco instrumentation
                 does not break debugging features.
             -->
@@ -304,14 +304,14 @@
                                 <goals>
                                     <goal>prepare-agent</goal>
                                 </goals>
-                            </execution>                                
+                            </execution>
                         </executions>
                     </plugin>
                 </plugins>
             </build>
         </profile>
         <profile>
-            <!-- 
+            <!--
                 The profile disables if tests are run in debug mode, so Jacoco instrumentation
                 does not break debugging features.
             -->
@@ -340,7 +340,7 @@
             </build>
         </profile>
         <profile>
-            <!-- 
+            <!--
                 This profile is a workaround for NetBeans broken (?) support for multiple
                 maven goals on action where Compile-on-Save is enabled. Instead of running a
                 goal sequence, the IDE sets a property that activates this profile.
@@ -369,7 +369,7 @@
                                     configured AFTER surefire plugin in this POM, so starting with Maven 3.0.3
                                     the Jacoco plugin goals will only run after surefire testing completes
                                 -->
-                                <phase>test</phase>      
+                                <phase>test</phase>
                                 <configuration>
                                     <skip>${skipTests}</skip>
                                 </configuration>
@@ -790,6 +790,19 @@
                         <goals>
                             <goal>merge</goal>
                         </goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${jacoco.reportDir}</directory>
+                                    <includes>
+                                        <File>**/*.exec</File>
+                                    </includes>
+                                </fileSet>
+                            </fileSets>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>default-cli</id>
                         <configuration>
                             <fileSets>
                                 <fileSet>
