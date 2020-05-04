@@ -1,5 +1,6 @@
 package jmri.jmrix.lenzplus.config;
 
+import jmri.InstanceManager;
 import jmri.jmrix.lenz.*;
 import jmri.TurnoutManager;
 
@@ -15,11 +16,13 @@ public class LenzPlusSystemConnectionMemo extends XNetSystemConnectionMemo {
     public LenzPlusSystemConnectionMemo(XNetTrafficController xt) {
         super(xt);
         log.debug("Created XNetPlusConnectionMemo");
+        InstanceManager.store(this, LenzPlusSystemConnectionMemo.class); // also register as specific type
     }
 
     public LenzPlusSystemConnectionMemo() {
         super();
         log.debug("Created XNetPlusConnectionMemo");
+        InstanceManager.store(this, LenzPlusSystemConnectionMemo.class); // also register as specific type
     }
 
     @Override

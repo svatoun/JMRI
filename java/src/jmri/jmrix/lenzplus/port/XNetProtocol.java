@@ -7,7 +7,9 @@ package jmri.jmrix.lenzplus.port;
 
 import java.io.IOException;
 import java.io.InputStream;
-import jmri.jmrix.lenz.XNetReply;
+import jmri.jmrix.lenz.XNetListener;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 
 /**
  *
@@ -15,7 +17,8 @@ import jmri.jmrix.lenz.XNetReply;
  */
 public interface XNetProtocol {
     public byte readByteProtected(InputStream is) throws IOException;
-    public void notifyMessageStart(XNetReply reply);
-    public boolean endOfMessage(XNetReply reply);
+    public void notifyMessageStart(XNetPlusReply reply);
+    public boolean endOfMessage(XNetPlusReply reply);
     public boolean isReplyExpected();
+    public void forwardToPort(XNetPlusMessage m, XNetListener reply);
 }

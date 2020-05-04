@@ -84,9 +84,13 @@ public class CommandState {
             this.active = active;
             this.confirmed = confirmed;
         }
+        
+        public boolean passed(Phase p) {
+            return ordinal() >= p.ordinal();
+        }
     }
     
-    private final XNetMessage   command;
+    private final XNetPlusMessage   command;
     
     /**
      * Diagnostics: The time the message was posted into the transmit queue.
@@ -117,8 +121,13 @@ public class CommandState {
      * The current processing phase.
      */
     private volatile Phase phase = Phase.CREATED;
+    
+    /**
+     * The handler that manages this command.
+     */
+    private volatile CommandHandler handler;
 
-    public CommandState(XNetMessage command) {
+    public CommandState(XNetPlusMessage command) {
         this.command = command;
     }
 
@@ -138,10 +147,22 @@ public class CommandState {
         stateReceived++;
     }
     
-    public XNetMessage getMessage() {
+    public XNetPlusMessage getMessage() {
         return command;
     }
-    
+
+    public long getTimeQueued() {
+        return timeQueued;
+    }
+
+    public long getTimeSent() {
+        return timeSent;
+    }
+
+    public long getTimeConfirmed() {
+        return timeConfirmed;
+    }
+
     /**
      * Transitions the message to a next phase. 
      * @param toPhase the new phase.
@@ -156,11 +177,7 @@ public class CommandState {
             return false;
         }
         log.debug("Message {} toPhase: {}", this, toPhase);
-        if (toPhase == Phase.EXPIRED) {
-            if (phase != Phase.EXPIRED) {
-                checkTransitionOne(toPhase);
-            }
-        } else {
+        if (!toPhase.passed(Phase.FINISHED)) {
             switch (phase) {
                 case SENT: case QUEUED: case CONFIRMED_AGAIN:
                     break;
@@ -197,10 +214,18 @@ public class CommandState {
         sb.append(String.format(", %s=%2$tM:%2$tS.%2$tL", name, time));
     }
     
+    void attachHandler(CommandHandler handler) {
+        this.handler = handler;
+    }
+    
+    public CommandHandler getHandler() {
+        return handler;
+    }
+    
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(
-                "%s; Phase: %s (%d/%d)" + // 4 parameters
+                "%s; Phase: %s (%d / %d)", // 4 parameters
                  command.toString(), phase.name(), okReceived, stateReceived));
         addTime(sb, timeQueued, "queued");
         addTime(sb, timeSent, "sent");

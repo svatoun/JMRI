@@ -7,9 +7,12 @@ package jmri.jmrix.lenzplus;
 
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.util.Collections;
+import java.util.List;
 import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetReply;
+import jmri.jmrix.lenzplus.CommandState.Phase;
 
 /**
  * Base class for actions commanded on XPressNet. 
@@ -23,7 +26,7 @@ import jmri.jmrix.lenz.XNetReply;
  * 
  * @author sdedic
  */
-public class XNetAction {
+public class CommandHandler {
     /**
      * The initial command message. There may be subsequent commands
      * before the whole Action completes.
@@ -41,15 +44,23 @@ public class XNetAction {
      * Queue for actions. Must be set before the action reaches
      * {@link Phase#QUEUED} state.
      */
-    private /* semifinal */ ActionQueue actionQueue;
+    private /* semifinal */ QueueController actionQueue;
 
     /**
      * Diagnostics: ID of the commanded object in the layout.
      */
     private int layoutId;
     
-    public XNetAction(XNetMessage commandMessage, XNetListener target) {
-        this.command = new CommandState(commandMessage);
+    /**
+     * The command currenctly in effect. Initially equals to
+     * {@link #command}, but may change if the action sends more 
+     * commands.
+     */
+    private CommandState currentCommand;
+    
+    public CommandHandler(CommandState commandMessage, XNetListener target) {
+        this.command = commandMessage;
+        this.currentCommand  = command;
         this.target = new WeakReference<>(target);
         this.layoutId = -1;
         // XXX
@@ -74,8 +85,16 @@ public class XNetAction {
         return t != null ? t : TRASH;
     }
     
-    public XNetMessage getCommandMessage() {
-        return command.getMessage();
+    public CommandState getCommand() {
+        return command;
+    }
+    
+    public List<CommandState> getAllCommands() {
+        return Collections.singletonList(getCommand());
+    }
+    
+    public Phase lastPhase() {
+        return command.getPhase();
     }
 
     /**
@@ -87,25 +106,58 @@ public class XNetAction {
     protected void sent(CommandState msg) {
     }
     
-    protected void processed(CommandState msg) {
+    protected boolean handleMessage(XNetPlusReply m) {
+        return false;
+    }
+    
+    /**
+     * The command has been processed by the command station, that have sent
+     * a reply. The function may be called multiple times for a single
+     * CommandState instance, if more replies are identified.
+     * 
+     * @param msg the command state
+     */
+    protected void processed(CommandState msg, XNetPlusReply reply) {
+    }
+    
+    protected boolean proceedNext() {
+        return true;
     }
 
     /**
-     * The command has been finished. Clean up.
+     * The command has been finished. Clean up, issue or schedule another
+     * Command.
      * @param finsihed finished command
      */
     protected void finished(CommandState finsihed) {
     }
     
-    public boolean acceptsMessage(XNetMessage msg) {
+    /**
+     * Determines if this Handler blocks a newly posted message.
+     * @param nMessage
+     * @return 
+     */
+    public boolean blocksMessage(XNetMessage nMessage) {
         return false;
     }
     
-    /* package-private */ synchronized void attachQueue(ActionQueue q) {
+    void addMessage(CommandState msgState) {
+        // not used
+    }
+    
+    /**
+     * Called to attach to an QueueController.
+     * @param q 
+     */
+    /* package-private */ synchronized void attachQueue(QueueController q) {
         if (actionQueue != null && actionQueue != q) {
             throw new IllegalStateException("Cannot attach twice");
         }
         this.actionQueue = q;
+    }
+    
+    public boolean acceptsReply(XNetPlusReply reply) {
+        return false;
     }
 
     /**

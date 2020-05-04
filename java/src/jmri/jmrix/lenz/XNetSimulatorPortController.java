@@ -3,6 +3,7 @@ package jmri.jmrix.lenz;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import javax.annotation.OverridingMethodsMustInvokeSuper;
+import jmri.jmrix.SystemConnectionMemo;
 
 /**
  * Abstract base for classes representing an XNet communications port
@@ -17,7 +18,11 @@ public abstract class XNetSimulatorPortController extends jmri.jmrix.AbstractSer
     public XNetSimulatorPortController() {
         super(new XNetSystemConnectionMemo());
     }
-
+    
+    protected XNetSimulatorPortController(SystemConnectionMemo memo) {
+        super(memo);
+    }
+    
     // base class. Implementations will provide InputStream and OutputStream
     // objects to XNetTrafficController classes, who in turn will deal in messages.    
     // returns the InputStream from the port

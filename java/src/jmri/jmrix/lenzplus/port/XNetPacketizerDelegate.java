@@ -6,8 +6,10 @@
 package jmri.jmrix.lenzplus.port;
 
 import java.io.InputStream;
+import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
-import jmri.jmrix.lenz.XNetReply;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 
 /**
  * Allows to encapsulate XpressNet message bytes.
@@ -17,5 +19,6 @@ public interface XNetPacketizerDelegate {
     public void attachTo(XNetProtocol protocol);
     public int addHeaderToOutput(byte[] msg, XNetMessage m);
     public int lengthOfByteStream(XNetMessage m);
-    public void loadChars(XNetReply msg, InputStream istream) throws java.io.IOException;
+    public void loadChars(XNetPlusReply msg, InputStream istream) throws java.io.IOException;
+    public void forwardToPort(XNetPlusMessage m, XNetListener reply);
 }

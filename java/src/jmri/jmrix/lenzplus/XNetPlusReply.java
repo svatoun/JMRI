@@ -39,6 +39,8 @@ public class XNetPlusReply extends XNetReply {
     // TBD: there will be other parts, for feedbacks, feedback broadcasts
     private int consumed;
     
+    private XNetPlusMessage responseTo;
+    
     XNetPlusReply(String s) {
         super(s);
     }
@@ -140,6 +142,14 @@ public class XNetPlusReply extends XNetReply {
         }
         log.warn("Actions for multiple-entry feedback broadcasts not supported.");
         return false;
+    }
+
+    public XNetPlusMessage getResponseTo() {
+        return responseTo;
+    }
+    
+    void setResponseTo(XNetPlusMessage msg) {
+        this.responseTo = msg;
     }
 
     private static final class FeedbackIterable implements Iterable<FeedbackItem> {

@@ -12,9 +12,9 @@ import jmri.jmrix.lenz.XNetMessage;
  *
  * @author sdedic
  */
-public class TurnoutAction extends XNetAction {
+public class AccessoryHandler extends CommandHandler {
     
-    public TurnoutAction(XNetMessage commandMessage, XNetListener target) {
+    public AccessoryHandler(CommandState commandMessage, XNetListener target) {
         super(commandMessage, target);
     }
     

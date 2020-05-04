@@ -3,10 +3,15 @@ package jmri.jmrix.lenz;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Comparator;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.concurrent.Semaphore;
+import jmri.NamedBean;
+import jmri.jmrix.SystemConnectionMemo;
 import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
 import jmri.jmrix.lenz.xnetsimulator.XNetSimulatorAdapter;
+import jmri.util.NamedBeanComparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +21,7 @@ import org.slf4j.LoggerFactory;
  * 
  * @author svatopluk.dedic@gmail.com
  */
-abstract class XNetTestSimulator extends XNetSimulatorAdapter {
+public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     private static final Logger LOG = LoggerFactory.getLogger(XNetTestSimulator.class);
     
     /**
@@ -69,6 +74,34 @@ abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     private volatile boolean captureMessages;
     
     private final Semaphore messageMarkerSemaphore = new Semaphore(0);
+    
+    /**
+     * Class that allows the Simulator to initialize in presence of bad design doing
+     * object registration in constructor.
+     */
+    static class NullConnectionMemo extends SystemConnectionMemo {
+        public NullConnectionMemo() {
+            super("X", "Test");
+        }
+        
+        @Override
+        public <B extends NamedBean> Comparator<B> getNamedBeanComparator(Class<B> type) {
+            return new NamedBeanComparator<>();
+        }
+
+        @Override
+        protected ResourceBundle getActionModelResourceBundle() {
+            return null;
+        }
+    }
+
+    public XNetTestSimulator() {
+        super(new NullConnectionMemo());
+    }
+
+    public XNetTestSimulator(boolean dontRegistrerIgnore) {
+        super(new NullConnectionMemo());
+    }
     
     /**
      * Will wait until the whole transmit queue is emptied and all replies sent.
@@ -356,7 +389,15 @@ abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      * interface.
      * This command station reports just single feedback for accessory "ON" operation.
      */
-    static class NanoXGenLi extends XNetTestSimulator {
+    public static class NanoXGenLi extends XNetTestSimulator {
+
+        public NanoXGenLi() {
+        }
+
+        public NanoXGenLi(boolean dontRegistrerIgnore) {
+            super(dontRegistrerIgnore);
+        }
+        
         @Override
         protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
             if (state) {
@@ -371,7 +412,15 @@ abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      * Simulator of DR5000 command station connected through USB interface.
      * {@link LIUSBXNetPacketizer} must be used with this station.
      */
-    static class DR5000 extends XNetTestSimulator {
+    public static class DR5000 extends XNetTestSimulator {
+
+        public DR5000() {
+        }
+
+        public DR5000(boolean dontRegistrerIgnore) {
+            super(dontRegistrerIgnore);
+        }
+        
         @Override
         protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
             if (state) {
@@ -405,8 +454,15 @@ abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      * Simulator of a LZV100 command station, connected through a serial
      * interface.
      */
-    static class LZV100 extends XNetTestSimulator {
+    public static class LZV100 extends XNetTestSimulator {
 
+        public LZV100() {
+        }
+
+        public LZV100(boolean dontRegistrerIgnore) {
+            super(dontRegistrerIgnore);
+        }
+        
         @Override
         protected int getAccessoryStateBits(int a) {
             if (accessoryOperated.get(a)) {
@@ -443,7 +499,7 @@ abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      * Represents a LZV100, connected through LI-USB interface. 
      * {@link LIUSBXNetPacketizer} must be used.
      */
-    static class LZV100_USB extends LZV100 {
+    public static class LZV100_USB extends LZV100 {
 
         @Override
         protected int addHeaderToOutput(byte[] msg, XNetReply m) {

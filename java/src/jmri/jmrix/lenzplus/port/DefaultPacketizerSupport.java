@@ -8,8 +8,10 @@ package jmri.jmrix.lenzplus.port;
 
 import java.io.IOException;
 import java.io.InputStream;
+import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
-import jmri.jmrix.lenz.XNetReply;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 
 /**
  * The basic (=none) encapsulation of Xpressnet protocol, used for
@@ -32,11 +34,16 @@ public class DefaultPacketizerSupport implements XNetPacketizerDelegate {
 
     @Override
     public int lengthOfByteStream(XNetMessage m) {
-        return m.getNumDataElements() + 2;
+        return m.getNumDataElements();
     }
 
     @Override
-    public void loadChars(XNetReply msg, InputStream istream) throws IOException {
+    public void forwardToPort(XNetPlusMessage m, XNetListener reply) {
+        protocol.forwardToPort(m, reply);
+    }
+
+    @Override
+    public void loadChars(XNetPlusReply msg, InputStream istream) throws IOException {
         int i;
         for (i = 0; i < msg.maxSize(); i++) {
             byte char1 = protocol.readByteProtected(istream);

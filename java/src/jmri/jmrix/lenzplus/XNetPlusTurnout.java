@@ -13,7 +13,7 @@ import javax.annotation.concurrent.GuardedBy;
  * @author sdedic
  */
 public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
-
+    
     /* State information */
     /**
      * OFF message has been sent. Need to send more OFF messages because

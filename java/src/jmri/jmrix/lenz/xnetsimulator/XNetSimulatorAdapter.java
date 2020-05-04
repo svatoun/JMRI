@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import jmri.jmrix.ConnectionStatus;
+import jmri.jmrix.SystemConnectionMemo;
 import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.XNetConstants;
 import jmri.jmrix.lenz.XNetInitializationManager;
@@ -60,6 +61,15 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
     private int momentaryGroup5 = 0;
     
     public XNetSimulatorAdapter() {
+        init();
+    }
+    
+    public XNetSimulatorAdapter(SystemConnectionMemo memo) {
+        super(memo);
+        init();
+    }
+    
+    private void init() {
         setPort(Bundle.getMessage("None"));
         try {
             PipedOutputStream tempPipeI = new ImmediatePipedOutputStream();

@@ -9,6 +9,6 @@ package jmri.jmrix.lenzplus;
  *
  * @author sdedic
  */
-public class ActionQueue {
-    
+public interface CommandController {
+    //public void preRecordLayoutState(CommandHandler h, int layoutId, int state);
 }

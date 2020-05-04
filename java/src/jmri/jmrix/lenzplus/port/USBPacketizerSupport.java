@@ -6,8 +6,10 @@
 package jmri.jmrix.lenzplus.port;
 
 import java.io.InputStream;
+import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
-import jmri.jmrix.lenz.XNetReply;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,12 +18,17 @@ import org.slf4j.LoggerFactory;
  * adapters.
  * @author sdedic
  */
-public final class USBPacketizerSupport implements XNetPacketizerDelegate {
+public class USBPacketizerSupport implements XNetPacketizerDelegate {
     private XNetProtocol    protocol;
 
     @Override
     public void attachTo(XNetProtocol protocol) {
         this.protocol = protocol;
+    }
+
+    @Override
+    public void forwardToPort(XNetPlusMessage m, XNetListener reply) {
+        protocol.forwardToPort(m, reply);
     }
 
     @Override
@@ -38,7 +45,7 @@ public final class USBPacketizerSupport implements XNetPacketizerDelegate {
     }
 
     @Override
-    public void loadChars(XNetReply msg, InputStream istream) throws java.io.IOException {
+    public void loadChars(XNetPlusReply msg, InputStream istream) throws java.io.IOException {
         int i;
         byte lastbyte = (byte) 0xFF;
         log.debug("loading characters from port");
