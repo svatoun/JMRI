@@ -28,6 +28,7 @@ import jmri.util.JUnitAppender;
 import jmri.util.JUnitUtil;
 import jmri.util.ThreadingUtil;
 import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -322,8 +323,9 @@ s         */
         initializeLayout(simul);
 
         Turnout t = initOnLayout(() -> {
+            LOG.debug("** Initializing Turnout 5");
             Turnout x = xnetManager.provideTurnout("XT5");
-            lnis.sendXNetMessage(new XNetMessage("00 00 00"), null);
+            LOG.debug("** Initialization 5 ends");
             return x;
         });
         
@@ -331,6 +333,7 @@ s         */
 
         simul.setCaptureMessages(true);
         ThreadingUtil.runOnLayout(() -> {
+            LOG.debug("** Commanding Turnout 5");
             t.setCommandedState(XNetTurnout.THROWN);
         });
 
@@ -339,7 +342,7 @@ s         */
         List<XNetReply> replies = simul.getIncomingReplies();
         
         assertFalse("Must not time out", timeoutOccured);
-        assertEquals("Expected one feedback and 3 OKs for OFF messages", 3, replies.size());
+        assertEquals("Expected one feedback and 3 OKs for OFF messages", 4, replies.size());
         assertEquals("Feedback reply expected", 0x42, replies.get(0).getElement(0));
     }
     
@@ -630,4 +633,6 @@ s         */
         // permit cleaning errors logged by TrafficController, all other checks OK
         clearErrors = true;
     }
+    
+    private static final Logger LOG = Logger.getLogger(XNetTrafficControllerIT.class);
 }

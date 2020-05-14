@@ -9,6 +9,8 @@ package jmri.jmrix.lenzplus;
  *
  * @author sdedic
  */
-public interface CommandController {
-    //public void preRecordLayoutState(CommandHandler h, int layoutId, int state);
+public class XNetPlusAccess {
+    public static XNetPlusReply createReply(String s) {
+        return new XNetPlusReply(s);
+    }
 }

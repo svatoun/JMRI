@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import jmri.InstanceManager;
 import jmri.Turnout;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
@@ -40,7 +41,7 @@ import org.junit.Test;
  * Integration tests for XNetTrafficController
  * @author svatopluk.dedic@gmail.com
  */
-public class XNetTrafficControllerIT {
+public class XNetPlusTrafficControllerIT {
     XNetTestSimulator testAdapter;
     TestXNetPlusTrafficController lnis;
     
@@ -84,14 +85,16 @@ public class XNetTrafficControllerIT {
          * after timeout.
 s         */
         @Override
-        protected synchronized void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
+        protected void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
             super.forwardToPort(m, reply);
             XNetMessage msg = (XNetMessage)m;
             // for each *instance* of message, track the number of attempts to send.
             // XNetMessage with the same payload are equals(), but we want to track instances,
             // to see what msg was actually re-send, and which was just replicated
-            retryCounters.computeIfAbsent(msg, (k) -> new AtomicInteger()).incrementAndGet();
-            originalMessage = msg;
+            synchronized (this)  {
+                retryCounters.computeIfAbsent(msg, (k) -> new AtomicInteger()).incrementAndGet();
+                originalMessage = msg;
+            }
         }
 
         @Override
@@ -134,6 +137,7 @@ s         */
         LenzPlusSystemConnectionMemo memo = new LenzPlusSystemConnectionMemo(lnis);
         testAdapter.setSystemConnectionMemo(memo);
         testAdapter.configure(lnis);
+        xnetManager = (XNetTurnoutManager)InstanceManager.getDefault().getInstance(XNetSystemConnectionMemo.class).getTurnoutManager();
 //        xnetManager = (XNetTurnoutManager)memo.getTurnoutManager();
         
         // queue a null message, simulator will signal when it is transmitted -
@@ -197,6 +201,13 @@ s         */
         assertEquals(Arrays.asList(m, m2, m3), msgs);
     }
     
+    private List<XNetPlusMessage> toPlusMessages(List<XNetMessage> l) {
+        for (int i = 0; i < l.size(); i++) {
+            l.set(i, XNetPlusMessage.create(l.get(i)));
+        }
+        return (List<XNetPlusMessage>)(List)l;
+    }
+    
     /**
      * Checks that a priority message will preempt existing messages
      * in the queue, and also new messages that should be yet sent.
@@ -209,11 +220,11 @@ s         */
         
         simul.setCaptureMessages(true);
         
-        XNetMessage m = XNetMessage.getCSVersionRequestMessage();       
-        XNetMessage m2 = XNetMessage.getCSStatusRequestMessage();
-        XNetMessage m3 = XNetMessage.getLocomotiveInfoRequestMsg(1);
-        XNetMessage m4 = XNetMessage.getLocomotiveFunctionStatusMsg(1);
-        XNetMessage m5 = XNetMessage.getEmergencyOffMsg();
+        XNetPlusMessage m = XNetPlusMessage.create(XNetMessage.getCSVersionRequestMessage());
+        XNetPlusMessage m2 = XNetPlusMessage.create(XNetMessage.getCSStatusRequestMessage());
+        XNetPlusMessage m3 = XNetPlusMessage.create(XNetMessage.getLocomotiveInfoRequestMsg(1));
+        XNetPlusMessage m4 = XNetPlusMessage.create(XNetMessage.getLocomotiveFunctionStatusMsg(1));
+        XNetPlusMessage m5 = XNetPlusMessage.create(XNetMessage.getEmergencyOffMsg());
         
         CountDownLatch l = new CountDownLatch(5);
         XNetListener callback = new XNetListenerScaffold() {
@@ -249,7 +260,7 @@ s         */
         
         l.await(300, TimeUnit.MILLISECONDS);
         
-        List<XNetMessage> msgs = simul.getOutgoingMessages();
+        List<XNetPlusMessage> msgs = toPlusMessages(simul.getOutgoingMessages());
         assertEquals(Arrays.asList(m, m3, m4, m2, m5), msgs);
     }
     
@@ -296,7 +307,7 @@ s         */
         List<XNetReply> replies = simul.getIncomingReplies();
         
         assertFalse("Must not time out", timeoutOccured);
-        assertEquals("Expected one feedback and 3 OKs for OFF messages", 3, replies.size());
+        assertEquals("Expected one feedback and 3 OKs for OFF messages", 4, replies.size());
         assertEquals("Feedback reply expected", 0x42, replies.get(0).getElement(0));
     }
     
@@ -355,7 +366,7 @@ s         */
             @Override
             public void forwardToPort(XNetPlusMessage m, XNetListener reply) {
                 
-                synchronized (XNetTrafficControllerIT.this) {
+                synchronized (XNetPlusTrafficControllerIT.this) {
                     super.forwardToPort(m, reply); 
                     if (count2) {
                         l2.countDown();

@@ -14,10 +14,13 @@ import org.slf4j.LoggerFactory;
  * @author Bob Jacobsen Copyright (C) 2003
  */
 abstract public class AbstractMRMessage extends AbstractMessage {
+    public static final int DEFAULT_PRIORITY = 100;
+    public static final int HIGH_PRIORITY = 50;
+    
     /**
      * True, if the message is a priority one.
      */
-    private boolean priorityMessage;
+    private int messagePriority = DEFAULT_PRIORITY;
 
     /**
      * Tracks the message from the layout.
@@ -272,7 +275,11 @@ abstract public class AbstractMRMessage extends AbstractMessage {
      * @return true, if the message should be delivered at a priority.
      */
     public boolean isPriorityMessage() {
-        return priorityMessage;
+        return messagePriority < DEFAULT_PRIORITY;
+    }
+
+    public int getPriority() {
+        return messagePriority;
     }
 
     /**
@@ -283,7 +290,11 @@ abstract public class AbstractMRMessage extends AbstractMessage {
      * @return this message
      */
     public <T extends AbstractMRMessage> T asPriority(boolean priorityMessage) {
-        this.priorityMessage = priorityMessage;
+        return asPriority(priorityMessage ? HIGH_PRIORITY : DEFAULT_PRIORITY);
+    }
+    
+    public <T extends AbstractMRMessage> T asPriority(int prio) {
+        this.messagePriority = prio;
         @SuppressWarnings("unchecked")
         T result = (T)this;
         return result;

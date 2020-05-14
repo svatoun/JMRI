@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenz;
 
 import javax.annotation.CheckForNull;
@@ -10,13 +5,15 @@ import javax.annotation.Nullable;
 import jmri.Turnout;
 
 /**
+ * Represents a single response from the XpressNet.
  * 
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (C) 2020
+ *
  */
 public class FeedbackItem {
-    private final int number;
-    private final int data;
-    private final XNetReply reply;
+    protected final int number;
+    protected final int data;
+    protected final XNetReply reply;
 
     protected FeedbackItem(XNetReply reply, int number, int data) {
         this.number = number;
@@ -59,7 +56,7 @@ public class FeedbackItem {
         if (isAccessory()) {
             return number == address;
         } else {
-            return (address - 1) / 4 == number;
+            return ((address - 1) & ~0x03) + 1 == number;
         }
     }
 
@@ -97,10 +94,9 @@ public class FeedbackItem {
             return -1;
         }
         switch (getAccessoryStatus()) {
-            case 0x01:
-                return Turnout.CLOSED;
-            case 0x02:
-                return Turnout.THROWN;
+            case 0x01: return Turnout.CLOSED;
+            case 0x02: return Turnout.THROWN;
+            default: // fall through
         }
         return -1;
     }
@@ -136,7 +132,7 @@ public class FeedbackItem {
         if (!isAccessory()) {
             return 0x03;    // invalid
         }
-        return (number & 0x01) > 0 ? (data & 0b0011) : (data & 0b1100) >> 2;
+        return (number & 0x01) != 0 ? (data & 0b0011) : (data & 0b1100) >> 2;
     }
 
     /**
@@ -168,5 +164,20 @@ public class FeedbackItem {
         }
         int a = (number & 0x01) > 0 ? number + 1 : number - 1;
         return new FeedbackItem(reply, a, data);
+    }
+    
+    @Override
+    public String toString() {
+        if (isAccessory()) {
+            String st;
+            switch (getTurnoutStatus()) { 
+                case Turnout.THROWN: st = "thrown"; break;
+                case Turnout.CLOSED: st = "closed"; break;
+                default: st = Integer.toString(getTurnoutStatus()); break;
+            }
+            return "AccFeedback[" + getAddress() + ": " + st + "]";
+        } else {
+            return "ModFeedback[" + getAddress() + ": " + Integer.toBinaryString(data & 0x0f) + "]";
+        }
     }
 }

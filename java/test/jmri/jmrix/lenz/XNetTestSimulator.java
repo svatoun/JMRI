@@ -7,11 +7,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import jmri.NamedBean;
 import jmri.jmrix.SystemConnectionMemo;
 import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
 import jmri.jmrix.lenz.xnetsimulator.XNetSimulatorAdapter;
+import jmri.jmrix.lenzplus.XNetAdapter;
 import jmri.util.NamedBeanComparator;
+import jmri.util.ThreadingUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,6 +78,8 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     
     private final Semaphore messageMarkerSemaphore = new Semaphore(0);
     
+    private final Semaphore incomingMessage = new Semaphore(0);
+    
     /**
      * Class that allows the Simulator to initialize in presence of bad design doing
      * object registration in constructor.
@@ -96,7 +101,7 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     }
 
     public XNetTestSimulator() {
-        super(new NullConnectionMemo());
+        super();
     }
 
     public XNetTestSimulator(boolean dontRegistrerIgnore) {
@@ -114,18 +119,37 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      */
     public void drainPackets(boolean clear) throws InterruptedException {
         messageMarkerSemaphore.drainPermits();
-        getSystemConnectionMemo().getXNetTrafficController().sendXNetMessage(
-            // LI-* messages start with 0x01 0x01
-            new XNetMessage("01 00 01"), new XNetListenerScaffold() {
-                @Override
-                public void message(XNetReply m) {
-                    messageMarkerSemaphore.release();
-                }
+
+        XNetListener l = new XNetListenerScaffold() {
+            @Override
+            public void message(XNetReply msg) {
+                incomingMessage.release();
             }
-        );
-        messageMarkerSemaphore.acquire();
-        if (clear) {
-            clearMesages();
+        };
+        try {
+            getSystemConnectionMemo().getXNetTrafficController().addXNetListener(XNetTrafficController.ALL, l);
+            do {
+                ThreadingUtil.runOnGUIEventually(() -> {
+                    getSystemConnectionMemo().getXNetTrafficController().sendXNetMessage(
+                        // LI-* messages start with 0x01 0x01
+                        new XNetMessage("01 00 01"), new XNetListenerScaffold() {
+                            @Override
+                            public void message(XNetReply m) {
+                                messageMarkerSemaphore.release();
+                            }
+                        }
+                    );
+                });
+                messageMarkerSemaphore.acquire();
+                LOG.debug("Marker message received, waiting for 200ms");
+                incomingMessage.drainPermits();
+            } while (incomingMessage.tryAcquire(200, TimeUnit.MILLISECONDS));
+            LOG.debug("No incoming message for 200ms");
+            if (clear) {
+                clearMesages();
+            }
+        } finally {
+         getSystemConnectionMemo().getXNetTrafficController().removeXNetListener(XNetTrafficController.ALL, l);   
         }
     }
 
@@ -501,6 +525,13 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      */
     public static class LZV100_USB extends LZV100 {
 
+        public LZV100_USB() {
+        }
+
+        public LZV100_USB(boolean dontRegistrerIgnore) {
+            super(dontRegistrerIgnore);
+        }
+        
         @Override
         protected int addHeaderToOutput(byte[] msg, XNetReply m) {
             m.resetUnsolicited();

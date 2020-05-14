@@ -7,8 +7,11 @@ package jmri.jmrix.lenzplus;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import jmri.jmrix.lenz.FeedbackItem;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetReply;
@@ -18,6 +21,17 @@ import org.slf4j.LoggerFactory;
 /**
  * An extension of {@link XNetReply}, which provides additional services to 
  * make layout object's writer life easier.
+ * <p>
+ * There are more possible states with respect to "solicited" state of the reply.
+ * Each Reply can be <b>attached</b> to an outgoing command. A broadcast starts always 
+ * unsolicited. Any non-broadcast reply received during transmit window of a command starts 
+ * as solicited and will be attached to that command. 
+ * <p>
+ * Before the Reply reaches {@link XNetListner}s, it will be preprocessed with respect
+ * to the command in transit, and commands already queued for transmission. During that
+ * stage, the reply may be <i>detached</i> from the command, making it unsolicited. Or
+ * a Broadcast may be attached and become a solicited response. 
+ * <p>
  * 
  * @author sdedic
  */
@@ -41,19 +55,86 @@ public class XNetPlusReply extends XNetReply {
     
     private XNetPlusMessage responseTo;
     
+    private boolean softUnsolicited = true;
+    
+    private boolean ignoreSuper = false;
+    
+    private boolean broadcast;
+
+    /**
+     * Computed solicited status.
+     */
+    private Boolean solicitedStatus;
+    
+    public enum Continuation {
+        /**
+         * The reply is not attached to any command. 
+         */
+        UNATTACHED,
+        /**
+         * The reply was provoked by a command and is completed, no 
+         * other reply is expected.
+         */
+        FINISH,
+        
+        /**
+         * The reply was provoked by a command, and a further possible reply
+         * is expected.
+         */
+        WAIT_ATTAHCED,
+    }
+    
     XNetPlusReply(String s) {
         super(s);
+        super.resetUnsolicited();
     }
 
     public XNetPlusReply() {
+        super.resetUnsolicited();
     }
 
     public XNetPlusReply(XNetReply reply) {
         super(reply);
+        reply.resetUnsolicited();
+        // super.isUnsolicited combines several things. All broadcasts are implicitly unsolicited.
+        // if we reset an explicit flag, and the reply is not a takeover, it mus be broadcast in order to
+        // be unsolicited.
+        broadcast = reply.isUnsolicited() && !reply.isThrottleTakenOverMessage();
     }
 
     public XNetPlusReply(XNetMessage message) {
         super(message);
+        super.resetUnsolicited();
+    }
+    
+    public static XNetPlusReply create(XNetReply r) {
+        if (r instanceof XNetPlusReply) {
+            return (XNetPlusReply)r;
+        } else {
+            return new XNetPlusReply(r);
+        }
+    }
+
+    /**
+     * Selects a feedback for the specified accessory. <b>Onlu returns</b> feedback
+     * that was not yet marked as consumed; see {@link #markFeedbackActionConsumed(int)}.
+     * @param accessoryNumber the target accessory DCC number
+     * @return optional feedback item
+     */
+    @Override
+    public Optional<FeedbackPlusItem> selectTurnoutFeedback(int accessoryNumber) {
+        Optional<FeedbackPlusItem> fi =  super.selectTurnoutFeedback(accessoryNumber);
+        return fi.filter(f -> !f.isConsumed());
+    }
+
+    public Optional<FeedbackPlusItem> selectTurnoutFeedback(int accessoryNumber, boolean allowConsumed) {
+        Optional<FeedbackPlusItem> fi =  super.selectTurnoutFeedback(accessoryNumber);
+        return fi.filter(f -> allowConsumed || !f.isConsumed());
+    }
+
+    @Override
+    protected FeedbackPlusItem createFeedbackItem(int n, int d) {
+        return new FeedbackPlusItem(this, n, d);
     }
     
     /**
@@ -135,6 +216,7 @@ public class XNetPlusReply extends XNetReply {
      * @return true, if consumed.
      */
     public boolean markFeedbackActionConsumed(int accessoryAddr) {
+        XNetPlusReply.log.debug("Marking consumed accessory: {} on {}", accessoryAddr, this);
         if (!isFeedbackBroadcastMessage()) {
             return markConsumed(CONSUMED_ACTION);
         } else if (isFeedbackMessage()) {
@@ -143,16 +225,94 @@ public class XNetPlusReply extends XNetReply {
         log.warn("Actions for multiple-entry feedback broadcasts not supported.");
         return false;
     }
+    
+    /**
+     * Determines if a feedback for the given accessory has been consumed.
+     * If the message is not a feedback, does not contain the desired feedback, 
+     * returns {@code true} to indicate the feedback ought not be processed.
+     * @param accessoryAddr
+     * @return 
+     */
+    public boolean isFeedbackActionConsumed(int accessoryAddr) {
+        Optional<FeedbackPlusItem> opt = selectTurnoutFeedback(accessoryAddr, true);
+        if (opt.isPresent()) {
+            return opt.get().isConsumed();
+        }
+        return false;
+    }
 
     public XNetPlusMessage getResponseTo() {
         return responseTo;
     }
     
-    void setResponseTo(XNetPlusMessage msg) {
+    public void setResponseTo(XNetPlusMessage msg) {
         this.responseTo = msg;
     }
 
-    private static final class FeedbackIterable implements Iterable<FeedbackItem> {
+    /**
+     * Determines if the message is a broadcast. This should be only inspected as a hint,
+     * as some LI* interfaces 
+     * @return 
+     */
+    public boolean isBroadcast() {
+        return broadcast;
+    }
+
+    /**
+     * Resets feedback's unsolicited state, when it is recognized
+     * by a command.
+     */
+    @Override
+    public void resetUnsolicited() {
+        solicitedStatus = false;
+    }
+    
+    @Override
+    public boolean isUnsolicited() {
+        if (solicitedStatus != null) {
+            return !solicitedStatus;
+        }
+        if (super.isUnsolicited()   // the broadcast status
+                || this.isThrottleTakenOverMessage()) {
+            return true;
+        }
+        // default state
+        return getResponseTo() == null;
+    }
+    
+    public void markSolicited(boolean mark) {
+        this.solicitedStatus = mark;
+    }
+    
+    public Stream<FeedbackPlusItem> feedbacks() {
+        FeedbackIterable it = new FeedbackIterable(this);
+        Spliterator<FeedbackPlusItem> spl = Spliterators.spliterator(it.iterator(), it.getSize(), 
+                Spliterator.DISTINCT | Spliterator.NONNULL |
+                        Spliterator.ORDERED);
+        return StreamSupport.stream(spl, false).filter(f -> !f.isConsumed());
+    }
+    
+    public Stream<FeedbackPlusItem> allFeedbacks() {
+        FeedbackIterable it = new FeedbackIterable(this);
+        Spliterator<FeedbackPlusItem> spl = Spliterators.spliterator(it.iterator(), it.getSize(), 
+                Spliterator.DISTINCT | Spliterator.SIZED | Spliterator.NONNULL |
+                        Spliterator.ORDERED | Spliterator.SUBSIZED);
+        return StreamSupport.stream(spl, false);
+    }
+
+    public boolean feedbackMatchesAccesoryCommand(XNetPlusMessage command) {
+        int turnoutId = command.getCommandedAccessoryNumber();
+        if (turnoutId == -1) {
+            return false;
+        }
+        return selectTurnoutFeedback(turnoutId).
+                map((f) -> 
+                    f.getTurnoutStatus() == command.getCommandedTurnoutStatus()
+                ).
+                orElse(false);
+    }
+
+    private static final class FeedbackIterable implements Iterable<FeedbackPlusItem> {
         private final XNetPlusReply feedbackMesage;
 
         public FeedbackIterable(XNetPlusReply feedbackMesage) {
@@ -160,11 +320,11 @@ public class XNetPlusReply extends XNetReply {
         }
 
         public int getSize() {
-            return feedbackMesage.getFeedbackMessageItems();
+            return feedbackMesage.getFeedbackMessageItems() * 2;
         }
 
         @Override
-        public Spliterator<FeedbackItem> spliterator() {
+        public Spliterator<FeedbackPlusItem> spliterator() {
             return Spliterators.spliterator(iterator(), getSize(), 
                 Spliterator.SIZED | Spliterator.IMMUTABLE | Spliterator.NONNULL | 
                 Spliterator.DISTINCT | Spliterator.ORDERED
@@ -172,8 +332,8 @@ public class XNetPlusReply extends XNetReply {
         }    
 
         @Override
-        public Iterator<FeedbackItem> iterator() {
-            return new Iterator<FeedbackItem>() {
+        public Iterator<FeedbackPlusItem> iterator() {
+            return new Iterator<FeedbackPlusItem>() {
                 private int cnt = getSize();
                 private int index;
                 private boolean odd;
@@ -184,7 +344,7 @@ public class XNetPlusReply extends XNetReply {
                 }
 
                 @Override
-                public FeedbackItem next() {
+                public FeedbackPlusItem next() {
                     if (cnt <= 0) {
                         throw new NoSuchElementException();
                     }
@@ -202,6 +362,15 @@ public class XNetPlusReply extends XNetReply {
         }
 
     }
+    
+    public XNetPlusReply copy() {
+        XNetPlusReply r = new XNetPlusReply(this);
+        r.consumed = consumed;
+        r.broadcast = broadcast;
+        r.responseTo = responseTo;
+        r.solicitedStatus = solicitedStatus;
+        return r;
+    }
 
-    private static final Logger log = LoggerFactory.getLogger(XNetPlusReply.class);
+    static final Logger log = LoggerFactory.getLogger(XNetPlusReply.class);
 }

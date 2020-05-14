@@ -3,9 +3,10 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package jmri.jmrix.lenzplus;
+package jmri.jmrix.lenzplus.comm;
 
 import jmri.jmrix.lenz.XNetMessage;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +40,17 @@ public class CommandState {
          * The message was created, but not passed to transmit thread.
          */
         CREATED(false, false), 
+
+        /**
+         * The message entered transmission queue.
+         */
+        SCHEDULED(true, false), 
+
+        /**
+         * The message entered transmission queue.
+         */
+        BLOCKED(true, false), 
+
         /**
          * The message entered transmission queue.
          */
@@ -127,8 +139,33 @@ public class CommandState {
      */
     private volatile CommandHandler handler;
 
+    /**
+     * Scheduling priority. Lower is more important.
+     */
+    private final int priority;
+    
+    /**
+     * Scheduling queue's stamp.
+     */
+    private long stamp;
+
+    /**
+     * Grouping key.
+     */
+    private Object commandGroupKey;
+    
     public CommandState(XNetPlusMessage command) {
         this.command = command;
+        this.priority = command.getPriority();
+    }
+    
+    CommandState(int prio) {
+        this.command = null;
+        this.priority = prio;
+    }
+
+    public int getPriority() {
+        return priority;
     }
 
     public int getOkReceived() {
@@ -178,11 +215,27 @@ public class CommandState {
         }
         log.debug("Message {} toPhase: {}", this, toPhase);
         if (!toPhase.passed(Phase.FINISHED)) {
+            boolean ok;
+            
             switch (phase) {
-                case SENT: case QUEUED: case CONFIRMED_AGAIN:
+                case CREATED:
+                    // queued -> blocked, sent
+                    ok = toPhase == Phase.QUEUED || toPhase == Phase.BLOCKED || toPhase == Phase.SENT;
                     break;
+                case QUEUED: 
+                    // queued -> blocked, sent
+                    ok = toPhase == Phase.BLOCKED || toPhase == Phase.SENT;
+                    break;
+                case SCHEDULED:
+                    // queued -> blocked, sent
+                    ok = toPhase == Phase.BLOCKED || toPhase == Phase.QUEUED;
+                    break;
+                case SENT: case CONFIRMED_AGAIN:
                 default:
-                    checkTransitionOne(toPhase);
+                    ok = checkTransitionOne(toPhase);
+            }
+            if (!ok) {
+                throw new IllegalArgumentException("Invalid transition from state " + this.phase.name() + " to " + toPhase.name());
             }
         }
         this.phase = toPhase;
@@ -193,14 +246,11 @@ public class CommandState {
             case SENT:      this.timeSent = t; break;
             case CONFIRMED: this.timeConfirmed = t; break;
         }
-        return true;
+        return phase != Phase.CONFIRMED_AGAIN;
     }
     
-    private void checkTransitionOne(Phase toPhase) {
-        if (toPhase.ordinal() == this.phase.ordinal() + 1) {
-            return;
-        }
-        throw new IllegalArgumentException("Invalid transition from state " + this.phase.name() + " to " + toPhase.name());
+    private boolean checkTransitionOne(Phase toPhase) {
+        return toPhase.ordinal() == (this.phase.ordinal() + 1);
     }
     
     public Phase getPhase() {
@@ -221,12 +271,37 @@ public class CommandState {
     public CommandHandler getHandler() {
         return handler;
     }
+
+    long getStamp() {
+        return stamp;
+    }
+
+    void setStampOnce(long stamp) {
+        if (this.stamp > 0) {
+            return;
+        }
+        this.stamp = stamp;
+    }
+
+    public Object getCommandGroupKey() {
+        return commandGroupKey;
+    }
+
+    public void setCommandGroupKey(Object commandGroupKey) {
+        if (this.commandGroupKey != null) {
+            throw new IllegalArgumentException("group key already set");
+        }
+        this.commandGroupKey = commandGroupKey;
+    }
     
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(
                 "%s; Phase: %s (%d / %d)", // 4 parameters
                  command.toString(), phase.name(), okReceived, stateReceived));
+        if (!phase.passed(Phase.SENT)) {
+            sb.append(" stamp: ").append(stamp);
+        }
         addTime(sb, timeQueued, "queued");
         addTime(sb, timeSent, "sent");
         addTime(sb, timeConfirmed, "confirmed");

@@ -598,7 +598,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
                 || this.isThrottleTakenOverMessage()
                 || (this.isFeedbackMessage() && reallyUnsolicited));
     }
-
+    
     /**
      * Resets the unsolicited feedback flag. If the reply was not a feedback,
      * or was received as a broadcast - unsolicited from the command station, 
@@ -608,7 +608,7 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
      * Messages sent as unsolicited by the command station can not be turned 
      * to solicited.
      */
-    public final void resetUnsolicited() {
+    public void resetUnsolicited() {
         reallyUnsolicited = false;
     }
     
@@ -689,19 +689,24 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
      * @param proc the processor
      * @return {@code false} if feedback was not found, or a result of {@code proc()}.
      */
-    public boolean onTurnoutFeedback(int accessoryNumber, Function<FeedbackItem, Boolean> proc) {
-        return selectTurnoutFeedback(accessoryNumber).map(proc).orElse(false);
+    public <T extends FeedbackItem> boolean onTurnoutFeedback(int accessoryNumber, Function<T, Boolean> proc) {
+        Optional<T> f = selectTurnoutFeedback(accessoryNumber);
+        if (f.isPresent()) {
+             return proc.apply(f.get());
+        } else {
+            return false;
+        }
     }
 
     /**
-     * Selects a matching turnout feedback. Finds turnout feedback for the given {@accessoryNumber}.
+     * Selects a matching turnout feedback. Finds turnout feedback for the given {@code accessoryNumber}.
      * Returns an encapsulated feedback, that can be inspected. If no matching feedback is
      * present, returns empty {@link Optional}.
      * @param accessoryNumber the turnout number
      * @return optional feedback item.
      */
     @Nonnull
-    public Optional<FeedbackItem> selectTurnoutFeedback(int accessoryNumber) {
+    public <T extends FeedbackItem> Optional<T> selectTurnoutFeedback(int accessoryNumber) {
         // shortcut for single-item messages.
         if (!isFeedbackBroadcastMessage() || accessoryNumber <= 0 || accessoryNumber >= 1024) {
             return Optional.empty();
@@ -714,15 +719,15 @@ public class XNetReply extends jmri.jmrix.AbstractMRReply {
         if (r == -1) {
             return Optional.empty();
         }
-        FeedbackItem item = new FeedbackItem(this, accessoryNumber, r);
+        FeedbackItem item = createFeedbackItem(accessoryNumber, r);
         if (item.getAccessoryStatus() > 2) {
             // mask out invalid statuses
             return Optional.empty();
         }
-        return Optional.of(item);
+        return Optional.of((T)item);
     }
     
-    protected final FeedbackItem createFeedbackItem(int n, int d) {
+    protected FeedbackItem createFeedbackItem(int n, int d) {
         return new FeedbackItem(this, n, d);
     }
 

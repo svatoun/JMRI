@@ -5,17 +5,19 @@
  */
 package jmri.jmrix.lenzplus;
 
+import jmri.jmrix.lenzplus.comm.ReplyOutcome;
+import jmri.jmrix.lenzplus.comm.QueueController;
+import jmri.jmrix.lenzplus.impl.ReplyDispatcher;
+import jmri.jmrix.lenzplus.impl.ResponseHandler;
+import jmri.jmrix.lenzplus.impl.StreamReceiver;
 import jmri.jmrix.lenzplus.port.XNetPacketizerDelegate;
 import jmri.jmrix.lenzplus.port.XNetProtocol;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import javax.annotation.concurrent.GuardedBy;
+import java.util.concurrent.atomic.AtomicReference;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
 import jmri.jmrix.AbstractMRReply;
@@ -23,9 +25,8 @@ import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetPacketizer;
-import jmri.jmrix.lenz.XNetReply;
-import jmri.jmrix.lenz.XNetTurnout;
-import org.eclipse.jetty.util.BlockingArrayQueue;
+import jmri.jmrix.lenzplus.comm.TrafficController;
+import jmri.util.ThreadingUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,13 +34,42 @@ import org.slf4j.LoggerFactory;
  *
  * @author sdedic
  */
-public class XNetPlusTrafficController extends XNetPacketizer implements XNetProtocol {
-    private XNetPacketizerDelegate  packetizer;
+public class XNetPlusTrafficController extends XNetPacketizer 
+        implements XNetProtocol, ReplyDispatcher {
     private final QueueController   cmdController;
+    
+    /**
+     * The execution service used to run the receiver and reply threads.
+     */
+    final ExecutorService executor = Executors.newCachedThreadPool();
+
+    private XNetPacketizerDelegate  packetizer;
+    
+    /**
+     * The current StreamReceiver. Will be reset when the TC is reconnected.
+     * Never use the field directly; acquire using {@link #receiver()} and remember
+     * in local variable to have consistent set of calls.
+     */
+    private volatile StreamReceiver receiver;
+    
+    /**
+     * The preprocess being just sent.
+     */
+    private volatile XNetPlusMessage lastSentMessage;
     
     public XNetPlusTrafficController(LenzCommandStation pCommandStation) {
         super(pCommandStation);
-        cmdController = new QueueController(this);
+        cmdController = new QueueController(new TrafficController() {
+            @Override
+            public <T> T lookup(Class<T> service) {
+                return getSystemConnectionMemo().get(service);
+            }
+
+            @Override
+            public void sendMessageToDevice(XNetPlusMessage msg, XNetListener l) {
+                doSendMessage(msg, l);
+            }
+        });
     }
 
     public XNetPacketizerDelegate getPacketizer() {
@@ -55,21 +85,20 @@ public class XNetPlusTrafficController extends XNetPacketizer implements XNetPro
         packetizer.attachTo(this);
         return this;
     }
+    
+    public void sendHighPriorityXNetMessage(XNetMessage m, XNetListener reply) {
+        sendXNetMessage(XNetPlusMessage.create(m).asPriority(true), reply);
+    }
 
     @Override
     public void sendXNetMessage(XNetMessage m, XNetListener reply) {
-        XNetPlusMessage m2;
-        
-        if (m instanceof XNetPlusMessage) {
-            m2 = (XNetPlusMessage)m;
-        } else {
-            m2 = new XNetPlusMessage(m);
-        }
+        XNetPlusMessage m2 = XNetPlusMessage.create(m);
         // delegate to the command controller.
         cmdController.send(m2, reply);
     }
     
-     void doSendMessage(XNetPlusMessage m, XNetListener reply) {
+    // FIXME: make somehow inaccessible from outside LenzPlus
+    public void doSendMessage(XNetPlusMessage m, XNetListener reply) {
         super.sendXNetMessage(m, reply);
     }
 
@@ -115,24 +144,38 @@ public class XNetPlusTrafficController extends XNetPacketizer implements XNetPro
     
     // -----------------------------------------------------
     
-    @GuardedBy("this")
-    private volatile StreamReceiver receiver;
-    private volatile XNetPlusMessage lastSentMessage;
-    
     @Override
-    protected synchronized void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
-        if (receiver == null) {
-            throw new IllegalStateException();
-        }
-        lastSentMessage = (XNetPlusMessage)m;
-        getQueueController().message(lastSentMessage);
-        receiver().markTransmission();
-        packetizer.forwardToPort(lastSentMessage, (XNetListener)reply);
+    protected void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
+        XNetPlusMessage m2 = (XNetPlusMessage)m;
+        // just check
+        StreamReceiver r = receiver();
+        lastSentMessage = m2;
+        getQueueController().message(m2);
+        r.markTransmission(m2);
+        packetizer.forwardToPort(m2, (XNetListener)reply);
+    }
+    
+    /**
+     * Receives one preprocess into the XNetPlusReply object. 
+     * @return the reply object.
+     * @throws IOException on I/O error or comm termination.
+     */
+    XNetPlusReply receiveReply() throws IOException {
+        XNetPlusReply msg = (XNetPlusReply)newReply();
+
+        // wait for start if needed
+        waitForStartOfReply(istream);
+
+        // preprocess exists, now fill it
+        loadChars(msg, istream);
+        
+        return msg;
     }
 
     /**
-     * Records that a message is being received.
+     * Records that a preprocess is being received.
      */
+    @Override
     public void notifyMessageStart(XNetPlusReply msg) {
         StreamReceiver r = receiver;
         if (r != null) {
@@ -140,8 +183,11 @@ public class XNetPlusTrafficController extends XNetPacketizer implements XNetPro
         }
     }
     
-    final ExecutorService executor = Executors.newCachedThreadPool();
-    
+    /**
+     * Returns the current receiver. Throws {@link IllegalStateException} if
+     * the controller has not been (re)started.
+     * @return the receiver.
+     */
     private StreamReceiver receiver() {
         StreamReceiver r = this.receiver;
         if (r == null) {
@@ -150,10 +196,19 @@ public class XNetPlusTrafficController extends XNetPacketizer implements XNetPro
         return r;
     }
 
+    // used from the RESPONSE thread.
+    private ResponseHandler responseHandler;
+
     @Override
     public void receiveLoop() {
-        executor.submit(receiver = new StreamReceiver(Thread.currentThread()));
+        executor.submit(receiver = new StreamReceiver(this::receiveReply));
+        responseHandler = new ResponseHandler(receiver, this);
         super.receiveLoop();
+    }
+    
+    @Override
+    public void handleOneIncomingReply() throws IOException {
+        responseHandler.handleOneIncomingReply();
     }
     
     /**
@@ -162,418 +217,128 @@ public class XNetPlusTrafficController extends XNetPacketizer implements XNetPro
      * 
      * @param reply the reply to distribute
      * @param lastSender the sender that should be targetted by the reply; null for no target
-     * @param r Runnable to execute in the layout thread, which will actually distribute the message
+     * @param r Runnable to execute in the layout thread, which will actually distribute the preprocess
      */
-    protected void distributeReply(AbstractMRReply reply, AbstractMRListener lastSender, Runnable r) {
+    protected ReplyOutcome distributeReply(AbstractMRReply reply, AbstractMRListener lastSender, Runnable r) {
+        AtomicReference<ReplyOutcome> result = new AtomicReference<>();
         distributeReply(() -> {
             XNetPlusReply plusReply = (XNetPlusReply)reply;
             // pre-process
-            getQueueController().message(plusReply);
+            ReplyOutcome out = null;
+            Exception savedEx = null;
             try {
-                r.run();
-            } finally {
-                // trigger post-processing of the reply
-                getQueueController().postReply(plusReply);
+                getQueueController().preprocess(plusReply);
+                // maybe change the result to AtomicReference, so even in case
+                // the user callback fails, the outcome is OK.
+                out = getQueueController().processReply(plusReply);
+                try {
+                    // attempt to propperly process the protocol.
+                    // run through all other listeners.
+                    r.run();
+                } catch (Exception ex) {
+                    // catch errors in JMRI higher layers
+                    savedEx = ex;
+                } finally {
+                    if (savedEx != null) {
+                        out.withError(savedEx);
+                    }
+                }
+            } catch (Exception ex) {
+                if (out == null) {
+                    // last resort, if the protocol itself fails.
+                    out = ReplyOutcome.finished(plusReply, ex);
+                }
+                out.withError(ex);
             }
+            result.set(out);
         });
+        return result.get();
     }
 
-    /**
-     * This loop provides processing coordinated between the transmit and receive threads.
-     * It attempts to acquire a message from the receiver, blocking of no message is available.
-     * When acquired, 
-     */
-    @Override
-    public void handleOneIncomingReply() throws IOException {
-        XNetReply r = null;
-        StreamReceiver recvHelper = this.receiver;
-        ResponseHandler handler = null;
-        boolean mustProcess = true;
-        try {
-//            while (true) {
-                if (!recvHelper.shouldRun()) {
-                    return;
-                }
-                 r = recvHelper.take();
-                 // re-check after possible block
-                 if (!recvHelper.shouldRun() || r == null) {
-                     return;
-                 }
-                 // share the handler for all unsolicited messages
-                 if (handler == null) {
-                    handler = new ResponseHandler(this);
-                 }
-                 if (!recvHelper.isSolicited(r)) {
-                    handler.process(r);
-                    if (!r.isUnsolicited()) {
-                        mustProcess = false;
-                        LOG.error("Unexpected solicited reply: " + r);
-                    } else {
-                        return;
-                    }
-                 }
-//            }
-            handler.update();
-            if (mustProcess) {
-                handler.process(r);
+    public final void snapshot(StateMemento m) {
+        synchronized (m) {
+            synchronized (xmtRunnable) {
+                m.retransmitCount = retransmitCount;
+                m.mCurrentMode = mCurrentMode;
+                m.mCurrentState = mCurrentState;
+                m.origCurrentState = mCurrentState;
             }
-
-            // process until the input stream terminates:
-            // special case if the last sender is a turnout:
-            if (false && ((handler.mLastSender instanceof XNetTurnout) ||
-                (handler.lastMessage != null && handler.lastMessage.getElement(0) == 0x52))) {
-                while (true) {
-                    r = recvHelper.takeWithTimeout(30);
-                    if (r == null) {
-                        break;
-                    }
-                    handler.process(r);
-                }
-            }
-        } finally {
-            recvHelper.resetSolicitedReply(r);
-            if (handler != null) {
-                handler.flush();
+            update(m);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Saved state memento: {}, lastMessage: {}, lastSender: {}", m.toString(), m.lastMessage, m.mLastSender);
             }
         }
     }
+
+    public synchronized void update(StateMemento m) {
+        m.mLastSender = (XNetListener)mLastSender;
+        m.lastMessage = lastSentMessage;
+    }
+    
+    public void commit(StateMemento m, boolean notify) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Committing memento: {}, notify: {}", m.toString(), notify);
+        }
+        mCurrentState = m.mCurrentState;
+        mCurrentMode = m.mCurrentMode;
+        retransmitCount = m.retransmitCount;
+        synchronized (xmtRunnable) {
+            replyInDispatch = false;
+            if (notify) {
+                LOG.debug("Notifying transmit thread...");
+                xmtRunnable.notify();
+            }
+        }
+    }
+    
+    public ReplyOutcome distributeReply(StateMemento m, XNetPlusReply msg, XNetListener target) {
+        synchronized (xmtRunnable) {
+            replyInDispatch = true;
+        }
+        synchronized (m) {
+            LOG.debug("dispatch reply of length {} contains \"{}\", state {}, origState {}", 
+                    msg.getNumDataElements(), msg, m.mCurrentState, m.origCurrentState);
+        }
+        Runnable r = new RcvNotifier(msg, target, this);
+        return distributeReply(msg, mLastSender, r);
+    }
+    
+    @Override
+    public void commandFinished(StateMemento m, ReplyOutcome out) {
+        ThreadingUtil.runOnLayout(() -> 
+                getQueueController().replyFinished(out)
+        );
+    }
+
     
     // operated from the received thread.
     private int retransmitCount;
     
-    /**
-     * The ResponseHandler instance will capture all the state changes until
-     * after all replies are processed. This is will prevent the
-     * transmit thread from waking up too early.
-     */
-    static class ResponseHandler {
-        final XNetPlusTrafficController ctrl;
-        final Object xmtRunnable;
-        
-        AbstractMRMessage  lastMessage;
-        AbstractMRListener mLastSender;
-        int origCurrentState;
-        int mCurrentState;
-        int mCurrentMode;
-        boolean replyInDispatch = true;
-        boolean warmedUp;
-        
-        private ResponseHandler(XNetPlusTrafficController source) {
-            ctrl = source;
-            xmtRunnable = source.xmtRunnable;
-            
-            synchronized (source.xmtRunnable) {
-                mCurrentMode = source.mCurrentMode;
-                mCurrentState = source.mCurrentState;
-                origCurrentState = mCurrentState;
-                update();
+    
+    
+    @Override
+    public void terminateThreads() {
+        StreamReceiver rcv = receiver();
+        if (rcv != null) {
+            rcv.stop();
+            try {
+                istream.close();
+            } catch (IOException ex) {
+                // ignore
+            }
+            try {
+                ostream.close();
+            } catch (IOException ex) {
+                // ignore
             }
         }
-        
-        public synchronized void update() {
-            this.mLastSender = ctrl.mLastSender;
-            this.lastMessage = ctrl.lastSentMessage;
-        }
-        
-        private boolean handleSolicitedStateTransition(XNetReply msg) {
-            switch (mCurrentState) {
-                case WAITMSGREPLYSTATE: {
-                    if (msg.isRetransmittableErrorMsg()) {
-                        LOG.error("Automatic Recovery from Error Message: {}.  Retransmitted {} times.", msg, ctrl.retransmitCount);
-                        synchronized (xmtRunnable) {
-                            mCurrentState = AUTORETRYSTATE;
-                            if (ctrl.retransmitCount > 0) {
-                                try {
-                                    xmtRunnable.wait(ctrl.retransmitCount * 100L);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt(); // retain if needed later
-                                }
-                            }
-                            replyInDispatch = false;
-                            ctrl.retransmitCount++;
-                        }
-                    } else {
-                        // update state, and notify to continue
-                        mCurrentState = NOTIFIEDSTATE;
-                        replyInDispatch = false;
-                        ctrl.retransmitCount = 0;
-                    }
-                    break;
-                }
-                case WAITREPLYINPROGMODESTATE: {
-                    // entering programming mode
-                    mCurrentMode = PROGRAMINGMODE;
-                    replyInDispatch = false;
-
-                    // check to see if we need to delay to allow decoders to become
-                    // responsive
-                    int warmUpDelay = ctrl.enterProgModeDelayTime();
-                    if (!warmedUp && warmUpDelay != 0) {
-                        warmedUp = true;
-                        try {
-                            synchronized (xmtRunnable) {
-                                xmtRunnable.wait(warmUpDelay);
-                            }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt(); // retain if needed later
-                        }
-                    }
-                    // update state, and notify to continue
-                    mCurrentState = OKSENDMSGSTATE;
-                    break;
-                }
-                case WAITREPLYINNORMMODESTATE: {
-                    // entering normal mode
-                    mCurrentMode = NORMALMODE;
-                    replyInDispatch = false;
-                    // update state, and notify to continue
-                    mCurrentState = OKSENDMSGSTATE;
-                    break;
-                }
-                default:
-                    return false;
-            }
-            return true;
-        }
-        
-        public void process(XNetReply msg) {
-            replyInDispatch = true;
-            // forward the message to the registered recipients,
-            // which includes the communications monitor
-            // return a notification via the Swing event queue to ensure proper thread
-            LOG.debug("dispatch reply of length {} contains \"{}\", state {}, origState {}", msg.getNumDataElements(), msg, mCurrentState, origCurrentState);
-            Runnable r = new RcvNotifier(msg, mLastSender, ctrl);
-            ctrl.distributeReply(msg, mLastSender, r);
-
-            if (!msg.isUnsolicited()) {
-                boolean success = handleSolicitedStateTransition(msg);
-                if (!success) {
-                    // retry with the original state
-                    int saveState = mCurrentState;
-                    mCurrentState = origCurrentState;
-                    success = handleSolicitedStateTransition(msg);
-                    if (!success) {
-                        mCurrentState = saveState;
-                        // FIXME bug: should occur inside the monitor to ensure cache propagation.
-                        // will be flushed "at some point", but can be stuck while waiting on a
-                        // next message.
-                        if (ctrl.allowUnexpectedReply) {
-                            replyInDispatch = false;
-                            LOG.debug("Allowed unexpected reply received in state: {} was {}", mCurrentState, msg);
-                        } else {
-                            ctrl.unexpectedReplyStateError(mCurrentState, msg.toString());
-                        }
-                    }
-                }
-            } else {
-                LOG.debug("Unsolicited Message Received {}", msg);
-            }
-        }
-        
-        public void flush() {
-            ctrl.mCurrentState = mCurrentState;
-            ctrl.mCurrentMode = mCurrentMode;
-            synchronized (xmtRunnable) {
-                ctrl.replyInDispatch = false;
-                if (replyInDispatch == false) {
-                    xmtRunnable.notify();
-                }
-            }
-        }
+        super.terminateThreads();
     }
     
     @Override
     protected XNetPlusReply newReply() {
         return new XNetPlusReply();
     }
-
-    /**
-     * The receiver thread. It helps to correlate request and response threads.
-     * This thread receives data continuously into a bounded buffer: the buffer's capacity
-     * should be big enough to accumulate data during excess processing time in the response thread.
-     * <p>
-     * Upon transmission of a new message, the queue of existing data is flushed - those
-     * received packets <b>can not be</b> responses to the request being sent. They can be
-     * safely processed as out-of-band unsolicited messages from the command station.
-     * <p>
-     * Next, the caller may perform a time-bounded poll for a message. If, for example,
-     * the turnout operation expects OK <b>and optional feedback</b>, the response thread
-     * may poll for some small time to get that feedback, and process it as a part of
-     * the transmitted operation, before it releases the transmit thread.
-     */
-    class StreamReceiver implements Runnable {
-        private final Thread responseThread;
-        /**
-         * Counts the number of incoming packets, that are in the queue,
-         * or are in the process of insertion.
-         */
-        private final Semaphore incomingPackets = new Semaphore(0);
-        
-        private final BlockingQueue<XNetReply>   recvQueue = new BlockingArrayQueue<>(10);
-        
-        /**
-         * Number of recv errors. The number is incremented in the receiver thread,
-         * but might be read from other threads.
-         */
-        private volatile int errorCount;
-        
-        @GuardedBy("this")
-        private boolean transmitMark;
-        
-        @GuardedBy("this")
-        private volatile XNetPlusReply solicitedReply;
-        
-        private volatile IOException ioError;
-        
-        private volatile RuntimeException runtimeError;
-
-        public StreamReceiver(Thread responseThread) {
-            this.responseThread = responseThread;
-        }
-        
-        /**
-         * An incoming packet is detected. If a message has been transmitted and not
-         * yet serviced, we mark the incoming reply as solicited - IF the incoming
-         * packet is not marked as broadcast by the link layer.
-         */
-        void incomingPacket(XNetPlusReply mark) {
-            synchronized (this) {
-                if (transmitMark) {
-                    LOG.debug("SOLICITED incoming packet starts: {}", mark);
-                    solicitedReply = mark;
-                    transmitMark = false;
-                } else {
-                    LOG.debug("unsolicited incoming packet starts: {}", mark);
-                }
-                incomingPackets.release();
-            }
-        }
-        
-        public void run() {
-            while (shouldRun()) {
-                try {
-                    receiveOne();
-                } catch (IOException e) {
-                    ioError = e;
-//                    rcvException = true;
-//                    reportReceiveLoopException(e);
-                    break;
-                } catch (RuntimeException e1) {
-                    LOG.error("Exception in receive loop: {}", e1.toString(), e1);
-                    errorCount++;
-                    if (errorCount == maxRcvExceptionCount) {
-                        errorCount--;
-//                        reportReceiveLoopException(e1);
-                        runtimeError = e1;
-                    }
-                }
-            }
-//            if (!threadStopRequest) { // if e.g. unexpected end
-//                ConnectionStatus.instance().setConnectionState(controller.getUserName(), controller.getCurrentPortName(), ConnectionStatus.CONNECTION_DOWN);
-//                log.error("Exit from rcv loop in {}", this.getClass());
-//                recovery(); // see if you can restart
-//            }
-            responseThread.interrupt();
-        }
-        
-        
-        
-        private void receiveOne() throws IOException {
-            XNetPlusReply msg = (XNetPlusReply)newReply();
-
-            // wait for start if needed
-            waitForStartOfReply(istream);
-
-            // message exists, now fill it
-            loadChars(msg, istream);
-            
-            // note: the semaphore was already incremented after 1st reply
-            // byte was received, see loadChars().
-            recvQueue.offer(msg);
-        }
-        
-        public boolean isSolicited(XNetReply r) {
-            return r == solicitedReply;
-        }
-        
-        public void resetSolicitedReply(XNetReply r) {
-            synchronized (this) {
-                LOG.debug("Attempt to reset solicied reply for: {} - {}", r, r == solicitedReply);
-                if (r == solicitedReply) {
-                    solicitedReply = null;
-                    transmitMark = false;
-                }
-            }
-        }
-        
-        public XNetReply take() throws IOException {
-            while (shouldRun()) {
-                try {
-                    // wait for data to become available
-                    incomingPackets.acquire();
-                    break;
-                } catch (InterruptedException ex) {
-                    // no op, loop again
-                }
-            }
-            while (shouldRun()) {
-                try {
-                    return recvQueue.take();
-                } catch (InterruptedException ex) {
-                    // no op, loop again
-                }
-            }
-            if (ioError != null) {
-                throw ioError;
-            } else if (runtimeError != null) {
-                throw runtimeError;
-            }
-            return null;
-        }
-        
-        public XNetReply takeWithTimeout(int waitTimeout) {
-            XNetReply reply = null;
-            boolean havePermit = false;
-            while (shouldRun()) {
-                try {
-                    if (incomingPackets.tryAcquire(waitTimeout, TimeUnit.MILLISECONDS)) {
-                        // note: may wait until the packet is complete.
-                        havePermit = true;
-                    }
-                    break;
-                } catch (InterruptedException ex) {
-                    // no op, loop again
-                }
-            }
-            if (!havePermit) {
-                return null;
-            }
-            while (shouldRun()) {
-                try {
-                    return recvQueue.take();
-                } catch (InterruptedException ex) {
-                    // no op, loop again
-                }
-            }
-            return null;
-        }
-        
-        void markTransmission() {
-            synchronized (this) {
-                if (!transmitMark) {
-                    solicitedReply = null;
-                }
-                LOG.debug("Outgoing transmission in progress: {}", lastSentMessage);
-                transmitMark = true;
-            }
-        }
-        
-        public boolean shouldRun() {
-            return ioError == null && runtimeError == null &&
-                  !rcvException && !threadStopRequest;
-        }
-        
-    } // end of StreamReceiver
-
+    
     private static final Logger LOG = LoggerFactory.getLogger(XNetPlusTrafficController.class);
 }

@@ -320,21 +320,32 @@ public abstract class AbstractMRTrafficController {
         if (m == null) {
             return;
         }
+        int p = m.getPriority();
         // priority message is always inserted at start, after all already
         // queued priority messages.
+        int i;
+        
         if (m.isPriorityMessage()) {
-            int i;
             for (i = 0; i < msgQueue.size(); i++) {
                 AbstractMRMessage check = msgQueue.get(i);
-                if (!check.isPriorityMessage()) {
+                if (check.getPriority() > p) {
                     break;
                 }
             }
-            msgQueue.add(i, m);
-            listenerQueue.add(i, reply);
         } else {
+            for (i = msgQueue.size() - 1; i > 0; i--) {
+                AbstractMRMessage check = msgQueue.get(i);
+                if (check.getPriority() <= p) {
+                    break;
+                }
+            }
+        }
+        if (i == msgQueue.size() - 1) {
             msgQueue.addLast(m);
             listenerQueue.addLast(reply);
+        } else {
+            msgQueue.add(i, m);
+            listenerQueue.add(i, reply);
         }
         synchronized (xmtRunnable) {
             if (mCurrentState == IDLESTATE) {
@@ -560,6 +571,7 @@ public abstract class AbstractMRTrafficController {
                 } else {
                     log.debug("during shutdown, {}  in transmitWait(..) of {}", interruptMessage, name);
                 }
+                return;
             }
         }
         // normally reset by the receiver thread.
@@ -1095,8 +1107,10 @@ public abstract class AbstractMRTrafficController {
         } catch (InterruptedException ie) {
             if(threadStopRequest) return;
             log.error("Unexpected exception in invokeAndWait: {}{}", ie, ie.toString());
+            log.error("invokeAndWaitException:", ie);
         } catch (java.lang.reflect.InvocationTargetException| RuntimeException e) {
             log.error("Unexpected exception in invokeAndWait: {}{}", e, e.toString());
+            log.error("invokeAndWaitException:", e);
             return;
         }
         log.debug("dispatch thread invoked");

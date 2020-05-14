@@ -3,26 +3,37 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package jmri.jmrix.lenzplus;
+package jmri.jmrix.lenzplus.comm;
 
 
+import jmri.jmrix.lenzplus.impl.DefaultHandler;
+import jmri.jmrix.lenzplus.impl.AccessoryHandler;
+import jmri.jmrix.lenzplus.impl.ProgModeHandler;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import javax.annotation.concurrent.GuardedBy;
+import jmri.Turnout;
+import jmri.TurnoutManager;
+import jmri.implementation.AbstractTurnout;
 import jmri.jmrix.lenz.XNetConstants;
 import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetTurnoutManager;
-import jmri.jmrix.lenzplus.CommandState.Phase;
+import jmri.jmrix.lenzplus.comm.CommandState.Phase;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
+import jmri.jmrix.lenzplus.XNetPlusResponseListener;
+import jmri.jmrix.lenzplus.XNetPlusTrafficController;
 import jmri.util.ThreadingUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,13 +46,13 @@ import org.slf4j.LoggerFactory;
  * 
  * @author sdedic
  */
-public class QueueController {
+public class QueueController implements CommandQueue {
     private static final Logger LOG = LoggerFactory.getLogger(QueueController.class);
     
     /**
      * The traffic controller. Used to enque messages.
      */
-    private final XNetPlusTrafficController controller;
+    private final TrafficController controller;
     
     /**
      * Service used to schedule delayed messages.
@@ -93,6 +104,13 @@ public class QueueController {
     private long stateTimeout = 1500;
     
     /**
+     * Time that must elapse from a command so unsolicited messages
+     * that would match a transmitted command are not considered
+     * concurrent changes from the layout.
+     */
+    private long concurrentUnsolicitedTime = 300;
+    
+    /**
      * Expected state of accessories. The state changes immediately when an 
      * accessory command <b>is sent</b>.
      * <p>
@@ -117,11 +135,11 @@ public class QueueController {
      * The last message that was sent / is being sent by the transmit thread.
      * Can be only accessed from the Layout thread.
      */
-    private CommandState lastSent;
+    private volatile CommandState lastSent;
     
     public static interface StateUpdater extends Consumer<XNetPlusReply>{}
     
-    public QueueController(XNetPlusTrafficController controller) {
+    public QueueController(TrafficController controller) {
         this.controller = controller;
     }
     
@@ -154,11 +172,17 @@ public class QueueController {
      * <p>
      * This method is intended to be called from the Traffic Controller, can be called
      * from an arbitrary thread.
-     * @param msg the message to sent.
+     * @param msg the preprocess to sent.
      */
-    boolean send(XNetPlusMessage msg, XNetListener callback) {
+    public boolean send(XNetPlusMessage msg, XNetListener callback) {
+        CommandState s = send(null, msg, callback);
+        return s.getPhase().passed(Phase.QUEUED);
+    }
+    
+    public CommandState send(CommandHandler h, XNetPlusMessage msg, XNetListener callback) {
+        CommandState state;
         synchronized (this) {
-            CommandState state = state(msg);
+            state = state(msg);
             LOG.debug("Request to sent {}, callback: {}", state, callback);
             if (state.getPhase().ordinal() > Phase.CREATED.ordinal()) {
                 System.err.println("");
@@ -172,15 +196,21 @@ public class QueueController {
             
             CommandHandler cmd = state.getHandler();
             if (cmd == null) {
+                cmd = h;
+            }
+            if (cmd == null && processedReplyAction != null) {
+                if (processedReplyAction.addMessage(state)) {
+                    LOG.debug("Accepted {} into {}", state, processedReplyAction);
+                    state.attachHandler(processedReplyAction);
+                    cmd = processedReplyAction;
+                }
+            }
+            if (cmd == null) {
                 // creates / attaches an action, if necessary.
                 cmd = forMessage(state, callback);
+                cmd.attachQueue(this);
                 LOG.debug("Command handler {} created for {}", cmd, state);
                 state.attachHandler(cmd);
-            }
-            if (cmd != null && cmd == processedReplyAction) {
-                // XX 
-                processedReplyAction.addMessage(state);
-                return false;
             }
             
             if (msg.isDelayed()) {
@@ -198,18 +228,34 @@ public class QueueController {
                         () -> postMessage(state, callback), d, TimeUnit.MILLISECONDS);
                     delayedMessages.put(state, future);
                 }
-                return false;
+                return state;
             }
             postMessage(state, callback);
         }
-        return true;
+        return state;
     }
     
-    synchronized void postMessage(CommandState state, XNetListener callback) {
-        LOG.debug("Entered queue: {}", state);
-        queuedMessages.add(state);
-        state.toPhase(Phase.QUEUED);
-        controller.doSendMessage(state.getMessage(), callback);
+    public synchronized Future<?> getFutureCommand(CommandState s) {
+        Future<?> f = delayedMessages.get(s);
+        if (f != null) {
+            return f;
+        }
+        if (s.getPhase().passed(Phase.QUEUED)) {
+            return CompletableFuture.completedFuture(null);
+        } else {
+            CompletableFuture c = new CompletableFuture();
+            c.completeExceptionally(new IllegalStateException(s.getPhase().toString()));
+            return c;
+        }
+    }
+    
+    void postMessage(CommandState state, XNetListener callback) {
+        synchronized (this) {
+            LOG.debug("Entered queue: {}", state);
+            queuedMessages.add(state);
+            state.toPhase(Phase.QUEUED);
+        }
+        controller.sendMessageToDevice(state.getMessage(), callback);
     }
     
     // TODO: refactor to a separate CommandHandlerFactory
@@ -219,9 +265,12 @@ public class QueueController {
         switch (m.getElement(0)) {
             case XNetConstants.ACC_OPER_REQ:
                 return new AccessoryHandler(cmd, callback);
+            case XNetConstants.PROG_WRITE_REQUEST:
+            case XNetConstants.PROG_READ_REQUEST:
+                return new ProgModeHandler(cmd, callback);
         }
         
-        return new SimpleHandler(cmd, callback);
+        return new DefaultHandler(cmd, callback);
     }
     
     /**
@@ -230,22 +279,21 @@ public class QueueController {
      * @param msg 
      */
     public void message(XNetPlusMessage msg) {
-        assert ThreadingUtil.isLayoutThread();
-
-        CommandState s = state(msg);
-        LOG.debug("Being sent: {}", s);
-        s.toPhase(Phase.SENT);
-        transmittedMessages.add(s);
-        CommandHandler h = s.getHandler();
-        this.lastSent = s;
-        debugPrintState();
+        synchronized (this) {
+            CommandState s = state(msg);
+            LOG.debug("Being sent: {}", s);
+            s.toPhase(Phase.SENT);
+            transmittedMessages.add(s);
+            this.lastSent = s;
+            debugPrintState();
+        }
     }
     
     private synchronized void debugPrintState() {
         if (!LOG.isDebugEnabled()) {
             return;
         }
-        LOG.debug("Last sent: {}, current command: {}", lastSent, lastSent.getHandler());
+        LOG.debug("Last sent: {}, current command: {}", lastSent, (lastSent == null ? "N/A" : lastSent.getHandler()));
         StringBuilder sb = new StringBuilder();
         transmittedMessages.forEach((s) -> {
             sb.append("\n\t").append(s);
@@ -254,96 +302,154 @@ public class QueueController {
         LOG.debug("Trasnmitted queue: {}", sb);
     }
     
+    synchronized void rejected(CommandState st) {
+        LOG.debug("Message REJECTED: {}", st);
+        transmittedMessages.remove(st);
+        st.toPhase(Phase.CREATED);
+    }
+    
+    protected void assureLayoutThread() {
+        if (!ThreadingUtil.isLayoutThread()) {
+            throw new IllegalStateException("Must be called in layout thread.");
+        }
+    }
+    
     /**
-     * Process a message reply.
-     * @param msg 
+     * Preprocesses a reply.
+     * @param r 
      */
-    public void message(XNetPlusReply msg) {
-        LOG.debug("Received reply: {}", msg);
-        assert ThreadingUtil.isLayoutThread();
+    public void preprocess(XNetPlusReply r) {
+        LOG.debug("Received reply: {}", r);
+        assureLayoutThread();
         expireTransmittedMessages();
         
-        if (msg.isRetransmittableErrorMsg()) {
-            rejected();
-            return;
-        }
-        
-        // the message was most probably confirmed, or some unsolicited message
-        // has arrived.
-        lastSent.getHandler().sent(lastSent);
-        
-        if (msg.isOkMessage()) {
-            // OK message is always paired to the command that has been just sent.
-            confirmCommand(msg);
-            return;
-        } else if (msg.isFeedbackMessage()) {         
-            // Special handling for feedbacks.
-        }
-        
-        for (CommandState s : transmittedMessages) {
-            CommandHandler h = s.getHandler();
-            if (h.handleMessage(msg)) {
-                break;
-            }
-        }
-        if (msg.getResponseTo() != null) {
-            
-        } else {
-            LOG.debug("Unclaimed response, assuming to confirm the last command: {}", lastSent);
-            // assume it's a reply to the last command:
-            confirmCommand(msg);
-        }
-    }
-    
-    private synchronized void rejected() {
-        if (lastSent == null) {
-            return;
-        }
-        transmittedMessages.remove(lastSent);
-        lastSent.toPhase(Phase.QUEUED);
-    }
-    
-    private void confirmCommand(XNetPlusReply reply) {
-        CommandHandler cc;
-        CommandState last;
-        synchronized (this) {
-            last = lastSent;
-            if (last == null) {
+        XNetPlusMessage cmd = r.getResponseTo();
+        CommandState s = null;
+        CommandHandler h = null;
+        if (cmd != null) {
+            s = state(cmd);
+            h = s.getHandler();
+
+            if (r.isRetransmittableErrorMsg()) {
+                rejected(s);
                 return;
             }
-            cc = last.getHandler();
+
+            // uniform handling: preprocess is rejected, but that means its confirmed,
+            // and no further confirmation can come
+            if (r.isUnsupportedError()) {
+                terminate(s.getHandler(), true);
+                return;
+            }
+            LOG.debug("Trying to accept by {}", h);
+            if (h.acceptsReply(cmd, r)) {
+                processAttachedMessage(h, s, r);
+                return;
+            }
         }
-        reply.setResponseTo(last.getMessage());
-        reply.resetUnsolicited();
-        boolean changed = last.toPhase(Phase.CONFIRMED);
-        if (reply.isOkMessage()) {
-            last.addOkMessage();
-        } else if (reply.isFeedbackBroadcastMessage()) {
-            last.addStateMessage();
-        }
-        LOG.debug("Confirmed: {}", last);
-        if (changed) {
-            LOG.debug("Calling processed on {}", last);
-            cc.processed(last, reply);
+        processUnsolicited(r);
+    }
+    
+    void processUnsolicited(XNetPlusReply r) {
+        LOG.debug("Reply is unsolicited.");
+        r.markSolicited(false);
+        r.setResponseTo(null);
+        filterThroughQueued(r);
+    }
+    
+    void filterThroughQueued(XNetPlusReply r) {
+        for (CommandState s : queuedMessages) {
+            CommandHandler h = s.getHandler();
+            LOG.debug("Filtering through: {}", h);
+            h.filterMessage(r);
         }
     }
     
+    void processAttachedMessage(CommandHandler cmd, CommandState ms, XNetPlusReply r) {
+        LOG.debug("Initial filter: {}", cmd);
+        cmd.filterMessage(r);
+        filterThroughQueued(r);
+
+        boolean changed = ms.toPhase(Phase.CONFIRMED);
+        LOG.debug("Confirmed: {}, state change: {}, handler: {}", ms, changed, cmd);
+        if (ms.getPhase() == Phase.CONFIRMED) {
+            cmd.sent(ms);
+        }
+    }
     
-    public void postReply(XNetPlusReply msg) {
+    public ReplyOutcome processReply(XNetPlusReply reply) {
+        assureLayoutThread();
+        XNetPlusMessage msg = reply.getResponseTo();
+        if (msg == null) {
+            return ReplyOutcome.finished(reply);
+        }
+        CommandState last = state(msg);
+        CommandHandler h = last.getHandler();
+
+        ReplyOutcome outcome = h.processed(last, reply);
+        if ((outcome.isComplete() || !outcome.isAdditionalReplyRequired()) &&
+            last != h.getInitialCommand()) {
+            // for all but the initial command, notify the target. The initial command
+            // will be handled later.
+            notifyTarget(outcome, h, msg, reply);
+        }
+        if (outcome.isComplete()) {
+            last.toPhase(Phase.FINISHED);
+        }
+        outcome.markConsumed();
+        return outcome;
+    }
+    
+    /**
+     * Sends out target notification.
+     * @param h
+     * @param msg
+     * @param reply 
+     */
+    void notifyTarget(ReplyOutcome outcome, CommandHandler h, XNetPlusMessage msg, XNetPlusReply reply) {
+        XNetListener l = null;
+        if (msg != null) {
+            l = msg.getReplyTarget();
+        }
+        if (l == null && h.getCommand().getPhase().passed(Phase.FINISHED)) {
+            l = h.getTarget();
+        }
+        if (l != null) {
+            try {
+                if (l instanceof XNetPlusResponseListener) {
+                    if (msg == null) {
+                        msg = reply.getResponseTo();
+                    }
+                    LOG.debug("Notifying PLUS target: {}", l);
+                    ((XNetPlusResponseListener)l).completed(msg, reply);
+                } else {
+                    LOG.debug("Notifying XNet target: {}", l);
+                    l.message(reply);
+                }
+            } catch (Exception ex) {
+                LOG.error("Error during XNet target notification", ex);
+                outcome.withError(ex);
+            }
+        }
+    }
+    
+    public void replyFinished(ReplyOutcome outcome) {
+        assureLayoutThread();
+        XNetPlusReply msg = outcome.getReply();
         LOG.debug("PostReply for {}", msg);
-        assert ThreadingUtil.isLayoutThread();
         processedReplyAction = null;
         XNetPlusMessage out = msg.getResponseTo();
         if (out == null) {
             return;
         }
+        outcome.setComplete(true);
         CommandState s = state(out);
         CommandHandler action = s.getHandler();
-        if (action == null) {
-            return;
-        }
-        if (action.proceedNext()) {
+        LOG.debug("Finishing state: {}", s);
+        action.finished(outcome, s);
+        if (action.advance()) {
             terminate(action, true);
+            notifyTarget(outcome, action, null, msg);
         }
         LOG.debug("PostReply ends.");
     }
@@ -354,6 +460,9 @@ public class QueueController {
      * stale messages.
      */
     private void expireTransmittedMessages() {
+        if (true) {
+            return;
+        }
         List<CommandState> toExpire = new ArrayList<>();
         long currentTime = System.currentTimeMillis();
         synchronized (this) {
@@ -378,8 +487,8 @@ public class QueueController {
                 continue;
             }
             LOG.debug("Finishing state: {}", command);
-            command.finished(m);
-            if (command.proceedNext()) {
+            ReplyOutcome finishedOutcome = ReplyOutcome.finished(m, null);
+            if (command.finished(finishedOutcome, m)) {
                 terminate(command, m.getPhase() == Phase.FINISHED);
             }
         }
@@ -407,4 +516,20 @@ public class QueueController {
         });
     }
     
+    public synchronized void expectAccessoryState(int accId, int state) {
+        accessoryState.put(accId, state);
+    }
+
+    public synchronized int getAccessoryState(int id) {
+        return accessoryState.getOrDefault(id, Turnout.UNKNOWN);
+    }
+
+    @Override
+    public void requestAccessoryStatus(int id) {
+        TurnoutManager mgr = controller.lookup(TurnoutManager.class);
+        AbstractTurnout tnt = (AbstractTurnout)mgr.getTurnout("X" + id);
+        if (tnt != null) {
+            tnt.requestUpdateFromLayout();
+        }
+    }
 }

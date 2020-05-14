@@ -1,8 +1,8 @@
 package jmri.jmrix.lenz;
 
-import java.util.ArrayDeque;
 import java.util.Arrays;
-import java.util.Deque;
+import java.util.LinkedList;
+import java.util.Queue;
 import jmri.implementation.AbstractTurnout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,7 +138,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         _prefix = prefix;
         mNumber = pNumber;
 
-        requestList = new ArrayDeque<>();
+        requestList = new LinkedList<>();
 
         /* Add additiona feedback types information */
         _validFeedbackTypes |= MONITORING | EXACT | SIGNAL;
@@ -541,7 +541,6 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         }
         XNetMessage msg = getOffMessage();
         // Set the known state to the commanded state.
-        synchronized (this) {
         // To avoid some of the command station busy
         // messages, add a short delay before sending the
         // first off message.
@@ -554,7 +553,6 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         }
         newKnownState(getCommandedState());
                 internalState = OFFSENT;
-        }
         // Then send the message.
         tc.sendHighPriorityXNetMessage(msg, this);
     }
@@ -670,7 +668,7 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
 
     // A queue to hold outstanding messages
     @GuardedBy("this")
-    protected final Deque<RequestMessage> requestList;
+    protected final Queue<RequestMessage> requestList;
 
     /**
      * Send message from queue.

@@ -428,11 +428,7 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         r = new XNetReply("42 05 08 4F");
         Assert.assertEquals("Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(0));
 
-<<<<<<< HEAD
         // ask for address 21
-=======
-	    // ask for address 21
->>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(1));
         // feedback message for turnout 22, with invalid state.
         r = new XNetReply("42 05 0C 45");
@@ -444,15 +440,9 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         // feedback message for turnout 21, thrown
         r = new XNetReply("42 05 02 45");
         Assert.assertEquals("Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(1));
-<<<<<<< HEAD
         // ask for address 22.
         Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(0));
         // send invalid value for parameter (only 0 and 1 are valid).
-=======
-	    // ask for address 22.
-        Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(0));
-	    // send invalid value for parameter (only 0 and 1 are valid).
->>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Turnout Status", -1, r.getTurnoutStatus(3));
         // feedback message for turnout 21, with invalid state.
         r = new XNetReply("42 05 03 47");
@@ -475,11 +465,7 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         r = new XNetReply("42 05 08 4F");
         Assert.assertEquals("Broadcast Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(1,0));
 
-<<<<<<< HEAD
         // ask for address 21
-=======
-	    // ask for address 21
->>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 1));
         // feedback message for turnout 22, with invalid state.
         r = new XNetReply("42 05 0C 45");
@@ -490,15 +476,9 @@ public class XNetReplyTest extends jmri.jmrix.AbstractMessageTestBase {
         // feedback message for turnout 21, thrown
         r = new XNetReply("42 05 02 45");
         Assert.assertEquals("Broadcast Turnout Status", jmri.Turnout.THROWN, r.getTurnoutStatus(1,1));
-<<<<<<< HEAD
         // ask for address 22.
         Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 0));
         // send invalid value for parameter (only 0 and 1 are valid).
-=======
-	    // ask for address 22.
-        Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 0));
-	    // send invalid value for parameter (only 0 and 1 are valid).
->>>>>>> 9264828931... Synced with XNetReply improvements.
         Assert.assertEquals("Broadcast Turnout Status", -1, r.getTurnoutStatus(1, 3));
         // feedback message for turnout 21, with invalid state.
         r = new XNetReply("42 05 03 47");
