@@ -6,7 +6,6 @@
 package jmri.jmrix.lenzplus.impl;
 
 import jmri.jmrix.lenzplus.comm.CommandHandler;
-import jmri.jmrix.lenzplus.comm.CommandQueue;
 import jmri.jmrix.lenzplus.comm.CommandState;
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
 import java.util.HashMap;
@@ -27,12 +26,13 @@ import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeFalse;
+import jmri.jmrix.lenzplus.comm.CommandService;
 
 /**
  *
  * @author sdedic
  */
-public class AccessoryHandlerTest implements CommandQueue {
+public class AccessoryHandlerTest implements CommandService {
     Map<Integer, Integer> accessoryMap = new HashMap<>();
     
     private static XNetPlusReply newXNetPlusReply(String s) {

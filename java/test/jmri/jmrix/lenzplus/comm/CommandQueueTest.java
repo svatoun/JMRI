@@ -19,10 +19,10 @@ import static org.junit.Assert.*;
  *
  * @author sdedic
  */
-public class SchedulingQueueTest {
-    SchedulingQueue q = new SchedulingQueue();
+public class CommandQueueTest {
+    CommandQueue q = new CommandQueue();
     
-    public SchedulingQueueTest() {
+    public CommandQueueTest() {
     }
     
     @Before

@@ -54,7 +54,7 @@ public class CommandHandler extends CommandState {
      * Queue for actions. Must be set before the action reaches
      * {@link Phase#QUEUED} state. Never altered.
      */
-    private /* semifinal */ CommandQueue actionQueue;
+    private /* semifinal */ CommandService actionQueue;
 
     /**
      * Diagnostics: ID of the commanded object in the layout. 
@@ -90,7 +90,7 @@ public class CommandHandler extends CommandState {
         this.layoutId = -1;
     }
     
-    protected CommandQueue getQueue() {
+    protected CommandService getQueue() {
         return actionQueue;
     }
     
@@ -279,7 +279,7 @@ public class CommandHandler extends CommandState {
      * Called to attach to an QueueController.
      * @param q 
      */
-    /* package-private */ synchronized void attachQueue(CommandQueue q) {
+    /* package-private */ synchronized void attachQueue(CommandService q) {
         if (actionQueue != null && actionQueue != q) {
             throw new IllegalStateException("Cannot attach twice");
         }

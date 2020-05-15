@@ -46,7 +46,7 @@ import org.slf4j.LoggerFactory;
  * 
  * @author sdedic
  */
-public class QueueController implements CommandQueue {
+public class QueueController implements CommandService {
     private static final Logger LOG = LoggerFactory.getLogger(QueueController.class);
     
     /**
@@ -58,6 +58,8 @@ public class QueueController implements CommandQueue {
      * Service used to schedule delayed messages.
      */
     private final ScheduledExecutorService  schedulerService = Executors.newSingleThreadScheduledExecutor();
+    
+    private final CommandQueue commandQueue = new CommandQueue();
     
     /**
      * Turnout manager. Cannot be final, set from random thread, 

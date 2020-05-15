@@ -20,7 +20,7 @@ public class XNetPlusCommAccess {
         s.attachHandler(h);
     }
     
-    public static void attachQueue(CommandHandler h, CommandQueue q) {
+    public static void attachQueue(CommandHandler h, CommandService q) {
         h.attachQueue(q);
     }
 

@@ -7,7 +7,6 @@ package jmri.jmrix.lenzplus.impl;
 
 import java.util.ArrayList;
 import jmri.jmrix.lenzplus.comm.CommandHandler;
-import jmri.jmrix.lenzplus.comm.CommandQueue;
 import jmri.jmrix.lenzplus.comm.CommandState;
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
 import java.util.HashMap;
@@ -32,12 +31,13 @@ import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeFalse;
+import jmri.jmrix.lenzplus.comm.CommandService;
 
 /**
  *
  * @author sdedic
  */
-public class AccessoryHandlerTest2 implements CommandQueue, TrafficController {
+public class AccessoryHandlerTest2 implements CommandService, TrafficController {
     QueueController queue = new TestQueueController(this);
     Map<Integer, Integer> accessoryMap = new HashMap<>();
     

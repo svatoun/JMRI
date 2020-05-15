@@ -9,7 +9,8 @@ import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 
 /**
- *
+ * A reduced interface to {@link XNetTrafficController} necessary for
+ * sending messages by individual {@link CommandHandler}s.
  * @author sdedic
  */
 public interface TrafficController {

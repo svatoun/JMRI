@@ -5,7 +5,6 @@
  */
 package jmri.jmrix.lenzplus.impl;
 
-import jmri.jmrix.lenzplus.comm.CommandQueue;
 import jmri.jmrix.lenzplus.comm.CommandState;
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
 import jmri.jmrix.lenzplus.impl.AccessoryHandler;
@@ -23,12 +22,13 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
+import jmri.jmrix.lenzplus.comm.CommandService;
 
 /**
  *
  * @author sdedic
  */
-public class AccessoryHandlerOffTest extends AccessoryHandlerTest implements CommandQueue {
+public class AccessoryHandlerOffTest extends AccessoryHandlerTest implements CommandService {
     private Map<Integer, Integer> accessoryMap = new HashMap<>();
     
     XNetPlusMessage m2;
