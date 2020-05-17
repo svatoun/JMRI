@@ -179,7 +179,7 @@ public class AccessoryHandler extends CommandHandler {
                         false
                 ));
         LOG.debug("Generating OFF command: {}", msg);
-        insertMessage(getQueue().send(this, 
+        insertMessage(offCommand = getQueue().send(this, 
                 msg.delayed(30).asPriority(true),
                 null), false);
         return false;
@@ -187,8 +187,7 @@ public class AccessoryHandler extends CommandHandler {
 
     @Override
     public boolean checkConcurrentAction(CommandState st, XNetPlusReply reply) {
-        if (!st.getPhase().passed(CommandState.Phase.SENT) || 
-            !reply.isFeedbackMessage() || st != getInitialCommand()) {
+        if (!reply.isFeedbackMessage() || st != getInitialCommand()) {
             return false;
         }
         LOG.debug("Inspect concurrency between {} and {}", getInitialCommand(), st);

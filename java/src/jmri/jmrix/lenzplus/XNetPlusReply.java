@@ -12,6 +12,7 @@ import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import jmri.jmrix.AbstractMRReply;
 import jmri.jmrix.lenz.FeedbackItem;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetReply;
@@ -66,6 +67,8 @@ public class XNetPlusReply extends XNetReply {
      */
     private Boolean solicitedStatus;
     
+    private final XNetPlusReply original;
+    
     public enum Continuation {
         /**
          * The reply is not attached to any command. 
@@ -87,24 +90,37 @@ public class XNetPlusReply extends XNetReply {
     XNetPlusReply(String s) {
         super(s);
         super.resetUnsolicited();
+        this.original = null;
     }
 
     public XNetPlusReply() {
         super.resetUnsolicited();
+        this.original = null;
     }
 
     public XNetPlusReply(XNetReply reply) {
         super(reply);
+        this.original = null;
         reply.resetUnsolicited();
         // super.isUnsolicited combines several things. All broadcasts are implicitly unsolicited.
         // if we reset an explicit flag, and the reply is not a takeover, it mus be broadcast in order to
         // be unsolicited.
         broadcast = reply.isUnsolicited() && !reply.isThrottleTakenOverMessage();
     }
-
+    
+    private XNetPlusReply(XNetPlusReply r) {
+        super.resetUnsolicited();
+        this.original = r;
+        consumed = r.consumed;
+        broadcast = r.broadcast;
+        responseTo = r.responseTo;
+        solicitedStatus = r.solicitedStatus;
+    }
+    
     public XNetPlusReply(XNetMessage message) {
         super(message);
         super.resetUnsolicited();
+        this.original = null;
     }
     
     public static XNetPlusReply create(XNetReply r) {
@@ -311,6 +327,34 @@ public class XNetPlusReply extends XNetReply {
                 ).
                 orElse(false);
     }
+    
+    public String toString() {
+        if (original == null && !isConsumed()) {
+            return super.toString();
+        }
+        StringBuilder sb = new StringBuilder(super.toString());
+        
+        boolean d = LoggerFactory.getLogger(AbstractMRReply.class).isDebugEnabled();
+        if (d && original != null) {
+            sb.append("; cloned from: ").
+                    append(Integer.toHexString(System.identityHashCode(original)));
+        }
+        if (isConsumed()) {
+            if (isFeedbackMessage()) {
+                sb.append(", consumed FB:");
+                int a = getTurnoutMsgAddr(1);
+                if (isFeedbackActionConsumed(a)) {
+                    sb.append(" ").append(a);
+                }
+                if (isFeedbackActionConsumed(a + 1)) {
+                    sb.append(" ").append(a + 1);
+                }
+            }
+        } else {
+            sb.append(", consumed: ").append(Integer.toBinaryString(consumed));
+        }
+        return sb.toString();
+    }
 
     private static final class FeedbackIterable implements Iterable<FeedbackPlusItem> {
         private final XNetPlusReply feedbackMesage;
@@ -364,12 +408,7 @@ public class XNetPlusReply extends XNetReply {
     }
     
     public XNetPlusReply copy() {
-        XNetPlusReply r = new XNetPlusReply(this);
-        r.consumed = consumed;
-        r.broadcast = broadcast;
-        r.responseTo = responseTo;
-        r.solicitedStatus = solicitedStatus;
-        return r;
+        return new XNetPlusReply(this);
     }
 
     static final Logger log = LoggerFactory.getLogger(XNetPlusReply.class);

@@ -39,7 +39,11 @@ public final class ReplyOutcome {
         this.state = state;
         // makes a copy
         this.reply = reply;
-        this.targetReply = reply.copy();
+        if (state != null) {
+            this.targetReply = reply.copy();
+        } else {
+            this.targetReply = reply;
+        }
     }
 
     public ReplyOutcome(XNetPlusReply reply) {
@@ -63,7 +67,11 @@ public final class ReplyOutcome {
     }
     
     public ReplyOutcome withError(Throwable ex) {
-        this.exception = ex;
+        if (this.exception != null) {
+            this.exception.addSuppressed(ex);
+        } else {
+            this.exception = ex;
+        }
         return this;
     }
 

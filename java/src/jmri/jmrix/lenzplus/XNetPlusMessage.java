@@ -19,7 +19,7 @@ public class XNetPlusMessage extends XNetMessage {
     private XNetListener replyTarget;
     
     public XNetPlusMessage() {
-        super(0);
+        super(1);
     }
     
     public XNetPlusMessage(XNetMessage message) {

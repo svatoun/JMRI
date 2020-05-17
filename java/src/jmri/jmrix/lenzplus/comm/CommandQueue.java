@@ -6,6 +6,7 @@
 package jmri.jmrix.lenzplus.comm;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -14,9 +15,11 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+import javax.annotation.concurrent.GuardedBy;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.comm.CommandState.Phase;
 
@@ -66,27 +69,32 @@ public class CommandQueue {
     /**
      * List of messages, which may be active.
      */
+    @GuardedBy("this")
     private final LinkedList<CommandState>  active = new LinkedList<>();
     
     /**
      * All queued messages, for fast access.
      */
+    @GuardedBy("this")
     private final Set<CommandState> allQueued = new LinkedHashSet<>();
     
     /**
      * Indication that messages for a layout item/slot/accessory may need to be blocked.
      * Value is the highest-priority blocked message for that item.
      */
+    @GuardedBy("this")
     private Map<Object, CommandState> blockedSlots = new HashMap<>();
     
     /**
      * Lists of messages queued after a blocked message.
      */
+    @GuardedBy("this")
     private Map<CommandState, List<CommandState>> blockedMap = new HashMap<>();
     
     /**
      * Lock counters for individual blocked messages.
      */
+    @GuardedBy("this")
     private Map<CommandState, AtomicInteger> blocks = new HashMap<>();
 
     /**
@@ -95,114 +103,21 @@ public class CommandQueue {
      * at that time, they retain the stamp for later reinsertion between other blocked
      * and reinserted messages.
      */
+    @GuardedBy("this")
     private long stamp = 1;
+
+    /**
+     * Queue for message replay, after rejected temporarily.
+     */
+    @GuardedBy("this")
+    private final Queue<CommandState> replay = new LinkedList<>();
     
-    void priorityInsert(CommandState s, List<CommandState> list, boolean reinsert) {
-        if (reinsert) {
-            s.toPhase(CommandState.Phase.QUEUED);
-        }
-        int p = s.getPriority();
-        long st = s.getStamp();
-        boolean match;
-        if (p < XNetPlusMessage.DEFAULT_PRIORITY) {
-            for (ListIterator<CommandState> lit = list.listIterator(); lit.hasNext(); ) {
-                CommandState cs = lit.next();
-                int d = cs.getPriority() - p;
-                match = (d > 0);
-                if (reinsert) {
-                    // reinserts should attemp to add (already reached head of queue) first,
-                    // and if there are other stamped, their stamps defined ordering.
-                    if (d == 0 && st > 0) {
-                        match = cs.getStamp() == 0 || cs.getStamp() > st;
-                    }
-                }
-                if (match) {
-                    lit.previous();
-                    lit.add(s);
-                    return;
-                }
-            }
-            active.addLast(s);
-        } else {
-            for (ListIterator<CommandState> lit = list.listIterator(list.size()); lit.hasPrevious(); ) {
-                CommandState cs = lit.previous();
-                int d = cs.getPriority() - p;
-                match = (d <= 0);
-                if (reinsert) {
-                    if (d == 0 && st > 0) {
-                        match = cs.getStamp() != 0 && cs.getStamp() < st;
-                    }
-                }
-                if (match) {
-                    lit.next();
-                    lit.add(s);
-                    return;
-                }
-            }
-            active.addFirst(s);
-        }
-    }
-    
-    synchronized public void add(CommandState s, boolean block) {
-        allQueued.add(s);
-        if (block) {
-            addBlocked(s);
-        } else {
-            s.toPhase(Phase.QUEUED);
-            priorityInsert(s, active, false);
-        }
-    }
     
     public synchronized Stream<CommandState> getQueued() {
-        return allQueued.stream().filter(c -> c.getPhase().isActive());
-    }
-    
-    private void addBlocked(CommandState s) {
-        if (s.getPhase() != Phase.SCHEDULED) {
-            s.toPhase(Phase.BLOCKED);
+        if (allQueued.isEmpty()) {
+            return Stream.empty();
         }
-        blocks.computeIfAbsent(s, (x) -> new AtomicInteger()).incrementAndGet();
-        priorityInsert(s, active, false);
-    }
-    
-    private void makeBlocked(CommandState s) {
-        if (s.getPhase() != Phase.SCHEDULED) {
-            s.toPhase(Phase.BLOCKED);
-        }
-        Object id = s.getCommandGroupKey();
-        if (id == null) {
-            blockedMap.put(s, Collections.singletonList(s));
-            return;
-        }
-        CommandState head = blockedSlots.get(id);
-        if (head == null) {
-            blockedSlots.put(id, s);
-            List<CommandState> b = new ArrayList<>();
-            b.add(s);
-            blockedMap.put(s, b);
-            return;
-        }
-        // the new block has higher priority, make it the new slot head,
-        // and merge lists.
-        if (head.getPriority() > s.getPriority()) {
-            blockedSlots.put(id, s);
-            List<CommandState> l = blockedMap.remove(head);
-            l.add(s);
-            blockedMap.put(s, l);
-        } else {
-            blockedMap.get(head).add(s);
-        }
-    }
-    
-    private void reinsertAll(List<CommandState> waits) {
-        for (Iterator<CommandState> it = waits.iterator(); it.hasNext(); ) {
-            CommandState w = it.next();
-            if (w.getPhase().passed(Phase.FINISHED)) {
-                it.remove();
-            } else if (!blocks.containsKey(w)) {
-                priorityInsert(w, active, true);
-            }
-        }
+        return new ArrayList<>(allQueued).stream().filter(c -> c.getPhase().isActive());
     }
     
     /**
@@ -221,8 +136,13 @@ public class CommandQueue {
         do {
             unblock(s);
         } while (blocks.containsKey(s));
+        replay.remove(s);
         active.remove(s);
         return true;
+    }
+    
+    public synchronized boolean removeAll(Collection<CommandState> col) {
+        return col.stream().map(this::remove).allMatch(b -> b);
     }
     
     /**
@@ -240,6 +160,7 @@ public class CommandQueue {
         if (i == null || i.decrementAndGet() > 0) {
             return -1;
         }
+        s.toPhase(Phase.QUEUED);
         List<CommandState> waits = blockedMap.remove(s);
         if (waits == null) {
             // nothing was blocked because of this command, yet.
@@ -311,9 +232,185 @@ public class CommandQueue {
         return peekOrPoll(true);
     }
     
+
+    /**
+     * Returns an approx number of messages in the queue. The count could be
+     * precise, but it relies on that each message that is {@link Phase#EXPIRED}
+     * is really removed from the queue. For correct processing, terminate messages
+     * are filtered out from {@link #peek}, {@link #poll}, but <b>may be still counted</b>.
+     * DO NOT USE this method to test if the queue is empty.
+     * @return approximate number of messages in the queue.
+     */
+    public int size() {
+        return allQueued.size();
+    }
+    
+    /**
+     * Determines if the queue is empty. It's not just a query, it actually deletes
+     * inactive commands from the queue, changing the {@link #size}. The method
+     * could be called occasionally, just in case to purge possible leftovers.
+     * @return true, if the queue is empty.
+     */
+    public synchronized boolean checkEmpty() {
+        getQueued().
+            filter(c -> !c.getPhase().isActive()).
+            forEach(this::remove);
+        if (!blocks.isEmpty()) {
+            return false;
+        }
+        return peek() != null;
+    }
+    
+    /**
+     * Determines if there's a message to be sent. Note that the returned
+     * value may change by concurrent operation and is only informative. The command
+     * may be blocked, preempted or removed before {@link #peek} and a corresponding
+     * {@link #poll}. The only consistent value for command operation is given by 
+     * {@link #poll}.
+     * @return 
+     */
+    public synchronized CommandState peek() {
+        CommandState s = replay.peek();
+        if (s != null) {
+            return s;
+        }
+        s = peekOrPoll(false);
+        if (s != null) {
+            active.addFirst(s);
+        }
+        return s;
+    }
+
+    /**
+     * Replays a command. The command will be first served by the next {@link #poll}.
+     * Replayed commands are poll-ed in the replay order, and take precedence before
+     * any other commands, regardless of the priority.
+     * @param state command to replay.
+     */
+    public synchronized void replay(CommandState state) {
+        synchronized (state) {
+            if (!state.getPhase().isActive()) {
+                return;
+            }
+            state.toPhase(CommandState.Phase.REPLAYING);
+        }
+        allQueued.add(state);
+        replay.add(state);
+    }
+
+    @GuardedBy("this")
+    private void addBlocked(CommandState s) {
+        if (s.getPhase() != Phase.SCHEDULED) {
+            s.toPhase(Phase.BLOCKED);
+        }
+        blocks.computeIfAbsent(s, (x) -> new AtomicInteger()).incrementAndGet();
+        priorityInsert(s, active, false);
+    }
+
+    @GuardedBy("this")
+    void priorityInsert(CommandState s, List<CommandState> list, boolean reinsert) {
+        if (reinsert) {
+            s.toPhase(CommandState.Phase.QUEUED);
+        }
+        int p = s.getPriority();
+        long st = s.getStamp();
+        boolean match;
+        if (p < XNetPlusMessage.DEFAULT_PRIORITY) {
+            for (ListIterator<CommandState> lit = list.listIterator(); lit.hasNext(); ) {
+                CommandState cs = lit.next();
+                int d = cs.getPriority() - p;
+                match = (d > 0);
+                if (reinsert) {
+                    // reinserts should attemp to add (already reached head of queue) first,
+                    // and if there are other stamped, their stamps defined ordering.
+                    if (d == 0 && st > 0) {
+                        match = cs.getStamp() == 0 || cs.getStamp() > st;
+                    }
+                }
+                if (match) {
+                    lit.previous();
+                    lit.add(s);
+                    return;
+                }
+            }
+            active.addLast(s);
+        } else {
+            for (ListIterator<CommandState> lit = list.listIterator(list.size()); lit.hasPrevious(); ) {
+                CommandState cs = lit.previous();
+                int d = cs.getPriority() - p;
+                match = (d <= 0);
+                if (reinsert) {
+                    if (d == 0 && st > 0) {
+                        match = cs.getStamp() != 0 && cs.getStamp() < st;
+                    }
+                }
+                if (match) {
+                    lit.next();
+                    lit.add(s);
+                    return;
+                }
+            }
+            active.addFirst(s);
+        }
+    }
+    
+    synchronized public void add(CommandState s, boolean block) {
+        allQueued.add(s);
+        if (block) {
+            addBlocked(s);
+        } else {
+            s.toPhase(Phase.QUEUED);
+            priorityInsert(s, active, false);
+        }
+    }
+    
+    @GuardedBy("this")    
+    private void makeBlocked(CommandState s) {
+        s.toPhase(Phase.BLOCKED);
+        Object id = s.getCommandGroupKey();
+        if (id == null) {
+            blockedMap.put(s, Collections.singletonList(s));
+            return;
+        }
+        CommandState head = blockedSlots.get(id);
+        if (head == null) {
+            blockedSlots.put(id, s);
+            List<CommandState> b = new ArrayList<>();
+            b.add(s);
+            blockedMap.put(s, b);
+            return;
+        }
+        // the new block has higher priority, make it the new slot head,
+        // and merge lists.
+        if (head.getPriority() > s.getPriority()) {
+            blockedSlots.put(id, s);
+            List<CommandState> l = blockedMap.remove(head);
+            l.add(s);
+            blockedMap.put(s, l);
+        } else {
+            blockedMap.get(head).add(s);
+        }
+    }
+    
+    @GuardedBy("this")
+    private void reinsertAll(List<CommandState> waits) {
+        for (Iterator<CommandState> it = waits.iterator(); it.hasNext(); ) {
+            CommandState w = it.next();
+            if (w.getPhase().passed(Phase.FINISHED)) {
+                it.remove();
+            } else if (!blocks.containsKey(w)) {
+                priorityInsert(w, active, true);
+            }
+        }
+    }
+    
     private CommandState peekOrPoll(boolean poll) {
+        CommandState s = replay.poll();
+        if (s != null) {
+            return s;
+        }
         while (true) {
-            CommandState s = active.poll();
+            s = active.poll();
             if (s == null) {
                 return s;
             }
@@ -339,17 +436,5 @@ public class CommandQueue {
                 }
             }
         }
-    }
-
-    public int size() {
-        return allQueued.size();
-    }
-    
-    public synchronized CommandState peek() {
-        CommandState s = peekOrPoll(false);
-        if (s != null) {
-            active.addFirst(s);
-        }
-        return s;
     }
 }

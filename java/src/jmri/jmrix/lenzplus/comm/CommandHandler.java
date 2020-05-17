@@ -24,16 +24,39 @@ import jmri.jmrix.lenzplus.XNetPlusReply;
  * incoming replies, so that {@link XNetListener} clients may focus just on
  * their own state updates when processing a {@link XNetPlusReply}.
  * <p>
- * Handlers of <b>all known</b> commands are involved in the process, even
- * though their commands may not be yet transmitted. This is because if a layout
- * change is going to happen on behalf of JMRI, it's not good to e.g. synchronize
- * Turnout's CommandedState to CLOSED, if the Turnout has been already commanded
- * THROWN, but its command was just not delivered yet.
- * <p>
- * The CommandHandler also helps to determine, if a command reply sequence is over,
+ * The CommandHandler also helps to determine, if a command-reply sequence is over,
  * an additional reply must be received, or a reply MAY be received (subject to
  * layout conditions, command station type etc).
- * 
+ * <o>
+ * The call sequence is:
+ * <ol>
+ * <li>{@link #filterMessage} may be called at any time before message is sent. It should
+ * filter out information that would provoke unnecessary state changes on upper layers: the 
+ * layout objects already may have changed to the anticipated state, although the slow layout
+ * link did not sent them yet. Processing a layout feedback to an earlier command would flip
+ * the layout objects back and forth.
+ * <li>{@link #sent} when a message is sent out. The Handler should change the
+ * shared state since the message's effects can be visible on the layout from now on.
+ * For example, effects of Accessory Operation Request can be reported back any time
+ * after {@code sent()} is called. {@code sent()} MAY be called multiple times, if the message
+ * times out or is temporarily rejected by the command station and is being repeated.
+ * <li>{@link #acceptsReply} to determine if the reply is really a response to the
+ * Handler's message. Handler is paired to the reply based on time coincidence, initially; 
+ * if the Handler disagrees with the assignment, the reply is processed as solicited.
+ * <li>{@link #processed} when a reply comes back. The Handler must inspect the reply
+ * and produce a {@link ReplyOutcome} that informs about the message-reply exchange state. The
+ * infrastructure either waits for an additional reply, or finishes the message.
+ * <li>{@link #finished}, if the message-reply round is over. The Handler may generate
+ * implied messages, either stand-alone, or chained to the command. Is called exactly once for
+ * each sent() message.
+ * <li>{@link #checkConcurrentAction} to double-check for concurrent actions on the layout. May be
+ * called any time after the message was {@link #sent} to assess possible concurrent operations. The recommended
+ * strategy is to request an update after the command message is confirmed/finished, so that
+ * JMRI always sees the proper layout state even when conflicting operations are done by multiple
+ * devices.
+ * </ol>
+ * There's a <b>default CommandHandler</b> that is used if no other handler is willing to handle
+ * the message. The default handler is table-driven according to XPressNet 3.6 specification.
  * @author sdedic
  */
 public class CommandHandler extends CommandState {
@@ -211,11 +234,22 @@ public class CommandHandler extends CommandState {
 
     /**
      * Called to process the reply to the specified message. It is called once
-     * for each {@link XNetPlusReply} received and attached to the `msg`
-     * command.
+     * for each {@link XNetPlusReply} received and attached to the {@code msg}
+     * command. It must determine if the {@code reply} is a sufficient confirmation
+     * for the command, or if yet another reply is required. The instructions
+     * are returned in a {@link ReplyOutcome} object.
+     * <p>
+     * <b>Important note:</b> If the implementor <b>marks consumed</b> part of
+     * the reply, it is critical that the {@link ReplyOutcome} is created <b>before
+     * </b> marking the parts consumed. When created, {@code ReplyOutcome} 
+     * <b>clones the reply</b> including the state and that clone will be passed
+     * to the target listener(s) when the command finishes. If the consumed bits
+     * are set in the reply passed to the target {@link XNetListener}, the listener
+     * may fail process the reply properly.
      *
-     * @param msg   the command state
-     * @param reply
+     * @param msg  the command state
+     * @param reply the current reply being processed
+     * @return decision on how to proceeed next.
      */
     public ReplyOutcome processed(CommandState msg, XNetPlusReply reply) {
         int confirmations = msg.getOkReceived() + msg.getStateReceived();
@@ -227,13 +261,13 @@ public class CommandHandler extends CommandState {
         if (msg == getInitialCommand()) {
             toPhase(Phase.CONFIRMED);
         }
+        ReplyOutcome outcome = new ReplyOutcome(msg, reply);
         if (reply.isBroadcast() && confirmations < 1) {
-            ReplyOutcome o = new ReplyOutcome(msg, reply);
-            o.setAdditionalReplyRequired(true);
-            return o;
+            outcome.setAdditionalReplyRequired(true);
         } else {
-            return ReplyOutcome.finished(reply);
+            outcome.finish();
         }
+        return outcome;
     }
     
     /**
@@ -251,15 +285,39 @@ public class CommandHandler extends CommandState {
      * Determines if this Handler blocks a newly posted message.
      * @param nMessage
      * @return 
-     */
+     * 
+     * PENDING
     public boolean blocksMessage(XNetMessage nMessage) {
         return false;
     }
+     */
     
+    /**
+     * Called when a new message is about enter the TrafficController's queue 
+     * during reply dispatch. It is likely the message is implied by the XNetPlusMessage
+     * being currently replied to, and its handler may take a chance to absorb it.
+     * <p>
+     * If the handler <b>wants to manage</b> the message, it must return {@code true} and
+     * incorporate it in its state/message list, e.g. by calling {@link #insertMessage}.
+     * <p>
+     * If the handler responds {@code false}, the default procedure to find an appropriate
+     * {@link CommandHandler} is used.
+     * 
+     * @param msgState the new message to check
+     * @return {@code true}, if the handler is willing to manage the message.
+     */
     public synchronized boolean addMessage(CommandState msgState) {
         return false;
     }
     
+    /**
+     * Incorporates a message in the handler's managed list. The message can be
+     * inserted prior to the current message, or at the end of the list, depending
+     * on {@code beforeNow} parameters
+     * @param msg the new message to insert
+     * @param beforeNow {@code true} will insert the message before the current message,
+     * even before the initial one. {@code false} will add the message at the end of the list.
+     */
     protected final synchronized void insertMessage(CommandState msg, boolean beforeNow) {
         if (allCommands == null) {
             allCommands = new ArrayList<>(2);
@@ -276,7 +334,8 @@ public class CommandHandler extends CommandState {
     }
     
     /**
-     * Called to attach to an QueueController.
+     * Called to attach to an QueueController. Must be called when the Handler
+     * is associated with the {@link XNetPlusMessage}.
      * @param q 
      */
     /* package-private */ synchronized void attachQueue(CommandService q) {
@@ -292,20 +351,52 @@ public class CommandHandler extends CommandState {
      * all replies are accepted.
      * @param msg the message that has been just sent.
      * @param reply the reply which was received.
-     * @return 
+     * @return {@code true}, if the Handler recognizes the reply.
      */
     public boolean acceptsReply(XNetPlusMessage msg, XNetPlusReply reply) {
         return true;
     }
     
+    /**
+     * Checks for a possible concurrent operation. Called on handlers of transmitted
+     * messages to see if an <b>unsolicited</b> {@code reply} is not an operation
+     * done concurrently by another control device attached to the layout, and 
+     * handle the interference with JMRI operations.
+     * <p>
+     * The Handler may take an appropriate action: repeat the command, inform
+     * the Layout object, solicit another state info from the layout etc.
+     * 
+     * @param st the current command
+     * @param reply the unsolicited reply from layout
+     * @return true, if the reply indicates a concurrent/conflicting operation.
+     */
     public boolean checkConcurrentAction(CommandState st, XNetPlusReply reply) {
         return false;
     }
 
+    /**
+     * Returns the initial command's message. The handler is always represented by
+     * its initial command.
+     * @return message of the initial command.
+     */
     @Override
     public XNetPlusMessage getMessage() {
         return getInitialCommand().getMessage();
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Handler[").append(Integer.toHexString(System.identityHashCode(this))).
+                append("]: ").append(getCommand().toString());
+        if (getCommand() != getInitialCommand()) {
+            sb.append("Initial command: ").
+                    append(Integer.toHexString(System.identityHashCode(getInitialCommand())));
+        }
+        return sb.toString();
+    }
+    
+    
     
     //----------- Trampolines
 

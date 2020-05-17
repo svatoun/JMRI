@@ -15,6 +15,11 @@ import org.slf4j.LoggerFactory;
  * from XNetMessage because it should not be messed up by regular clients: the
  * state controls the command-reply protocol of XPressNet.
  * <p>
+ * The {@link #toPhase} guards that only permitted transitions are made. This is
+ * rather an internal safeguard against commands that may loop around unexpectedly.
+ * The state is also printed to debug log, so one can see in what phase each
+ * message is at the moment.
+ * <p>
  * Otherwise it could be directly on a {@link XNetMessage}, as there's 1:1 mapping
  * between CommandState and an outgoing message.
  * 
@@ -26,7 +31,7 @@ public class CommandState {
      * from CREATED to either FINISHED or EXPIRED through all the intermediate
      * phases. The exception are
      * <ul>
-     * <li>If a message is rejected (station busy), it falls back to QUEUED.
+     * <li>If a message is rejected (station busy), it falls back to REPLAYING.
      * <li>If a message is discarded, it will transition to EXPIRED from any state
      * except FINISHED
      * </ul>
@@ -55,6 +60,11 @@ public class CommandState {
          * The message entered transmission queue.
          */
         QUEUED(true, false), 
+
+        /**
+         * The message is being resent.
+         */
+        REPLAYING(true, false), 
         
         /**
          * The message has been (is being) sent to XpressNet interface
@@ -209,18 +219,27 @@ public class CommandState {
             if (this.phase.isConfirmed()) {
                toPhase = Phase.CONFIRMED_AGAIN;
             }
+        } else if (this.phase == Phase.FINISHED) {
+            if (toPhase == Phase.EXPIRED) {
+                toPhase = Phase.FINISHED;
+            }
+        }
+        if (this.phase != Phase.CREATED &&
+            !this.phase.isActive()) {
+            return false;
         }
         if (this.phase == toPhase) {
             return false;
         }
         log.debug("Message {} toPhase: {}", this, toPhase);
-        if (!toPhase.passed(Phase.FINISHED)) {
-            boolean ok;
-            
+        boolean ok;
+        ok = toPhase.passed(Phase.EXPIRED) ||
+             (phase.passed(Phase.SENT) && toPhase.passed(Phase.FINISHED));
+        if (!ok) {
             switch (phase) {
                 case CREATED:
                     // queued -> blocked, sent
-                    ok = toPhase == Phase.QUEUED || toPhase == Phase.BLOCKED || toPhase == Phase.SENT;
+                    ok = toPhase == Phase.QUEUED || toPhase == Phase.SCHEDULED || toPhase == Phase.BLOCKED;
                     break;
                 case QUEUED: 
                     // queued -> blocked, sent
@@ -230,7 +249,12 @@ public class CommandState {
                     // queued -> blocked, sent
                     ok = toPhase == Phase.BLOCKED || toPhase == Phase.QUEUED;
                     break;
-                case SENT: case CONFIRMED_AGAIN:
+                case SENT: 
+                    if (toPhase == Phase.REPLAYING) {
+                        ok = true;
+                        break;
+                    }
+                case CONFIRMED_AGAIN:
                 default:
                     ok = checkTransitionOne(toPhase);
             }
@@ -242,7 +266,7 @@ public class CommandState {
         
         long t = System.currentTimeMillis();
         switch (phase) {
-            case QUEUED: this.timeQueued = t; break;
+            case REPLAYING: case QUEUED: this.timeQueued = t; break;
             case SENT:      this.timeSent = t; break;
             case CONFIRMED: this.timeConfirmed = t; break;
         }
@@ -307,6 +331,10 @@ public class CommandState {
         addTime(sb, timeConfirmed, "confirmed");
         
         return sb.toString();
+    }
+    
+    /* test-private */ void toPhaseInternal(Phase p) {
+        this.phase = p;
     }
     
     private static final Logger log = LoggerFactory.getLogger(CommandState.class);

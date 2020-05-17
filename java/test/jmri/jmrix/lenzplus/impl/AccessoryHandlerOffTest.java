@@ -105,6 +105,8 @@ public class AccessoryHandlerOffTest extends AccessoryHandlerTest implements Com
         CommandState s1 = new CommandState(m);
         AccessoryHandler h = new AccessoryHandler(s1, null);
         XNetPlusCommAccess.attachQueue(h, this);
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.QUEUED);
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.SENT);
 
         XNetPlusMessage m2 = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(5,

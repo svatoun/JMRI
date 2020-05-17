@@ -15,6 +15,7 @@ import jmri.jmrix.lenzplus.port.XNetProtocol;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -95,6 +96,46 @@ public class XNetPlusTrafficController extends XNetPacketizer
         XNetPlusMessage m2 = XNetPlusMessage.create(m);
         // delegate to the command controller.
         cmdController.send(m2, reply);
+    }
+
+    @Override
+    protected void sendMessage(AbstractMRMessage m, AbstractMRListener reply) {
+        if (m == null) {
+            return;
+        }
+        if (!(m instanceof XNetMessage)) {
+            throw new IllegalArgumentException(m.getClass().getName());
+        }
+        if ((reply != null) && !(reply instanceof XNetListener)) {
+            throw new IllegalArgumentException(reply.getClass().getName());
+        }
+        sendXNetMessage((XNetMessage)m, (XNetListener)reply);
+    }
+    
+    @Override
+    protected AbstractMRMessage takeMessageToTransmit(AbstractMRListener[] ll) {
+        XNetPlusMessage m = cmdController.pollMessage();
+        if (m == null) {
+            return null;
+        } else {
+            ll[0] = m.getReplyTarget();
+            return m;
+        }
+    }
+
+    @Override
+    protected void reinsertMessage(AbstractMRMessage m, AbstractMRListener l) {
+        if (!(m instanceof XNetMessage)) {
+            throw new IllegalArgumentException(m.getClass().getName());
+        }
+        if ((l != null) && !(l instanceof XNetListener)) {
+            throw new IllegalArgumentException(l.getClass().getName());
+        }
+        XNetPlusMessage m2 = (XNetPlusMessage)m;
+        if (m2.getReplyTarget() != l) {
+            throw new IllegalArgumentException(Objects.toString(l));
+        }
+        cmdController.replay(m2);
     }
     
     // FIXME: make somehow inaccessible from outside LenzPlus
@@ -223,34 +264,7 @@ public class XNetPlusTrafficController extends XNetPacketizer
         AtomicReference<ReplyOutcome> result = new AtomicReference<>();
         distributeReply(() -> {
             XNetPlusReply plusReply = (XNetPlusReply)reply;
-            // pre-process
-            ReplyOutcome out = null;
-            Exception savedEx = null;
-            try {
-                getQueueController().preprocess(plusReply);
-                // maybe change the result to AtomicReference, so even in case
-                // the user callback fails, the outcome is OK.
-                out = getQueueController().processReply(plusReply);
-                try {
-                    // attempt to propperly process the protocol.
-                    // run through all other listeners.
-                    r.run();
-                } catch (Exception ex) {
-                    // catch errors in JMRI higher layers
-                    savedEx = ex;
-                } finally {
-                    if (savedEx != null) {
-                        out.withError(savedEx);
-                    }
-                }
-            } catch (Exception ex) {
-                if (out == null) {
-                    // last resort, if the protocol itself fails.
-                    out = ReplyOutcome.finished(plusReply, ex);
-                }
-                out.withError(ex);
-            }
-            result.set(out);
+            result.set(getQueueController().processReply2(plusReply, r));
         });
         return result.get();
     }

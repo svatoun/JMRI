@@ -483,4 +483,22 @@ public class CommandQueueTest {
         
         assertFalse(q.getQueued().anyMatch(s -> s.getPhase().passed(Phase.FINISHED)));
     }
+    
+    /**
+     * Checks that removing a blocking message will release messages
+     * suspended by it.
+     */
+    @Test
+    public void testRemoveBlocked() {
+        q.add(aOff, true);
+        q.add(a2On, false);
+
+        assertNull(q.poll());
+
+        aOff.toPhase(Phase.EXPIRED);
+        q.remove(aOff);
+        
+        // check that a2On was unblocked:
+        assertSame(a2On, q.poll());
+    }
 }

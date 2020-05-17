@@ -287,6 +287,8 @@ public class AccessoryHandlerTest implements CommandService {
         CommandState s1 = new CommandState(m);
         AccessoryHandler h = new AccessoryHandler(s1, null);
         assertSame(s1, h.getCommand());
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.QUEUED);
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.SENT);
         
         List<CommandState> cmds = h.getAllCommands();
         assertEquals(1, cmds.size());

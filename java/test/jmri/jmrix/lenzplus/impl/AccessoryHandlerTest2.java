@@ -22,7 +22,6 @@ import jmri.jmrix.lenzplus.FeedbackPlusItem;
 import jmri.jmrix.lenzplus.XNetPlusAccess;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.XNetPlusReply;
-import jmri.jmrix.lenzplus.comm.CommandState.Phase;
 import jmri.jmrix.lenzplus.comm.QueueController;
 import jmri.jmrix.lenzplus.comm.TrafficController;
 import jmri.jmrix.lenzplus.comm.XNetPlusCommAccess;
@@ -491,7 +490,7 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
     
     private void testFinishedWithReply(XNetPlusReply r) throws Exception {
         queue.preprocess(r);
-        ReplyOutcome out = queue.processReply(r);
+        ReplyOutcome out = queue.processReply2(r, () -> {});
         Future<?> f;
         CommandState s2;
         synchronized (queue) {

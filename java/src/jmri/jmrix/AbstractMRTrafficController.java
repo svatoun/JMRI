@@ -383,6 +383,13 @@ public abstract class AbstractMRTrafficController {
         }
         return m;
     }
+    
+    protected void reinsertMessage(AbstractMRMessage m, AbstractMRListener l) {
+        synchronized (this) {
+            msgQueue.addFirst(m);
+            listenerQueue.addFirst(l);
+        }
+    }
 
     /**
      * Permanent loop for the transmit thread.
@@ -449,8 +456,7 @@ public abstract class AbstractMRTrafficController {
                         handleTimeout(m, l);
                     } else if (mCurrentState == AUTORETRYSTATE) {
                         log.info("Message added back to queue: {}", m);
-                        msgQueue.addFirst(m);
-                        listenerQueue.addFirst(l);
+                        reinsertMessage(m, l);
                         synchronized (xmtRunnable) {
                             mCurrentState = IDLESTATE;
                         }
