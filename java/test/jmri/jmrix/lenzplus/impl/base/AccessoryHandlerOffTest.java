@@ -1,13 +1,7 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-package jmri.jmrix.lenzplus.impl;
+package jmri.jmrix.lenzplus.impl.base;
 
 import jmri.jmrix.lenzplus.comm.CommandState;
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
-import jmri.jmrix.lenzplus.impl.AccessoryHandler;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +20,7 @@ import jmri.jmrix.lenzplus.comm.CommandService;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class AccessoryHandlerOffTest extends AccessoryHandlerTest implements CommandService {
     private Map<Integer, Integer> accessoryMap = new HashMap<>();
@@ -149,16 +143,7 @@ public class AccessoryHandlerOffTest extends AccessoryHandlerTest implements Com
         assertTrue(out.isSolicited());
     }
     
-    @Override
-    public void checkAccessoryRequestState() {
-        if (h.isRecheckNeeded()) {
-            assertEquals(5, accessoryRequested);
-        }
-    }
-    
     public void checkSentCommand() {
         assertNull(sentCommand);
     }
-
-    
 }

@@ -1,11 +1,7 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-package jmri.jmrix.lenzplus.impl;
+package jmri.jmrix.lenzplus.impl.base;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import jmri.jmrix.lenzplus.comm.CommandHandler;
 import jmri.jmrix.lenzplus.comm.CommandState;
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
@@ -14,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import jmri.ProgrammingMode;
 import jmri.Turnout;
 import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
@@ -31,10 +28,11 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeFalse;
 import jmri.jmrix.lenzplus.comm.CommandService;
+import org.openide.util.Lookup;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class AccessoryHandlerTest2 implements CommandService, TrafficController {
     QueueController queue = new TestQueueController(this);
@@ -71,11 +69,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
             lastSentState = s;
             return s;
         }
-
-        @Override
-        public void requestAccessoryStatus(int id) {
-            AccessoryHandlerTest2.this.requestAccessoryStatus(id);
-        }
     }
     
     public AccessoryHandlerTest2() {
@@ -99,23 +92,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
     @After
     public void tearDown() {
     }
-
-    @Override
-    public <T> T lookup(Class<T> service) {
-        return null;
-    }
-
-    @Override
-    public void sendMessageToDevice(XNetPlusMessage msg, XNetListener l) {
-        sent.add(msg);
-    }
-
-    @Override
-    public void requestAccessoryStatus(int id) {
-        accessoryRequested = id;
-    }
-    
-    int accessoryRequested = -1;
 
     @Override
     public void expectAccessoryState(int accId, int state) {
@@ -278,8 +254,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
 
     @Test
     public void testAddMessage() throws Exception {
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.SENT);
         XNetPlusCommAccess.toPhase(s, CommandState.Phase.CONFIRMED);
         
         XNetPlusMessage m2 = XNetPlusMessage.create(
@@ -321,8 +295,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
     
     @Test
     public void testGetCommand() throws Exception {
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.SENT);
         XNetPlusCommAccess.toPhase(s, CommandState.Phase.CONFIRMED);
 
         XNetPlusMessage m = XNetPlusMessage.create(
@@ -346,6 +318,10 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
         assertEquals(2, cmds.size());
         assertSame(s1, cmds.get(0));
         assertSame(st, cmds.get(1));
+        
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.QUEUED);
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.SENT);
+        XNetPlusCommAccess.toPhase(s1, CommandState.Phase.CONFIRMED);
         
         XNetPlusCommAccess.advance(h);
         assertSame(st, h.getCommand());
@@ -395,9 +371,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
 
     @Test
     public void processedOK() throws Exception {
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.SENT);
-        
         ReplyOutcome out = h.processed(s, ok);
         assertFalse(out.isComplete());
         assertTrue(out.isSolicited());
@@ -408,8 +381,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
     @Test
     public void processedOKAndFeedback() throws Exception {
         assumeFalse(disableSelectively);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.SENT);
         
         ReplyOutcome out = h.processed(s, ok);
         assertFalse(out.isComplete());
@@ -424,9 +395,7 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
     @Test
     public void processedOKAndNonBroadcastFeedback() throws Exception {
         assumeFalse(disableSelectively);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.SENT);
-        
+      
         ReplyOutcome out = h.processed(s, ok);
         assertFalse(out.isComplete());
         assertFalse(out.isAdditionalReplyRequired());
@@ -447,8 +416,6 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
         XNetReply r = new XNetReply("42 01 01 44");
         r.setUnsolicited();
         fb = new XNetPlusReply(r);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(s, CommandState.Phase.SENT);
         
         ReplyOutcome out = h.processed(s, fb);
         assertFalse(out.isComplete());
@@ -479,17 +446,14 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
                 lastSentState.getMessage().isSameAccessoryOutput(m));
     }
     
-    protected void checkAccessoryRequestState() {
-        assertEquals(-1, accessoryRequested);
-    }
-
     @Test
     public void testFinishedNoRecheck() throws Exception {
         testFinishedWithReply(ok);
     }
     
     private void testFinishedWithReply(XNetPlusReply r) throws Exception {
-        queue.preprocess(r);
+        queue.preprocess(Collections.emptyList(), 
+                XNetPlusCommAccess.state(queue, r.getResponseTo()), r);
         ReplyOutcome out = queue.processReply2(r, () -> {});
         Future<?> f;
         CommandState s2;
@@ -501,18 +465,28 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
         }
         f.get(100, TimeUnit.MILLISECONDS);
         checkSentCommand();
-        checkAccessoryRequestState();
     }
     
     @Test
     public void testConcurrentAction() throws Exception {
         CommandState c = h.getCommand();
-        XNetPlusCommAccess.toPhase(c, CommandState.Phase.QUEUED);
-        XNetPlusCommAccess.toPhase(c, CommandState.Phase.SENT);
 
         XNetPlusReply fb = newXNetPlusReply("42 01 02 44");
         
         assertTrue(h.checkConcurrentAction(s, fb));
-        assertEquals(5, accessoryRequested);
+    }
+
+    @Override
+    public ProgrammingMode getMode() {
+        return null;
+    }
+
+    @Override
+    public void modeEntered(ProgrammingMode m) {
+    }
+
+    @Override
+    public Lookup getLookup() {
+        return Lookup.EMPTY;
     }
 }

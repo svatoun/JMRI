@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
 import java.util.Arrays;
@@ -21,7 +16,7 @@ import static org.junit.Assert.*;
 
 /**
  * Mainly tests the state machine transitions.
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class CommandStateTest {
     
@@ -46,7 +41,8 @@ public class CommandStateTest {
         addTransition(Phase.QUEUED, Phase.BLOCKED, Phase.SENT);
         addTransition(Phase.BLOCKED, Phase.QUEUED);
         // transmission:
-        addTransition(Phase.SENT, Phase.CONFIRMED, Phase.REPLAYING);
+        addTransition(Phase.SENT, Phase.CONFIRMED, Phase.REJECTED);
+        addTransition(Phase.REJECTED, Phase.REPLAYING);
         addTransition(Phase.REPLAYING, Phase.SENT);
         // confirmation:
         addTransition(Phase.CONFIRMED, Phase.CONFIRMED_AGAIN, Phase.FINISHED);
@@ -58,14 +54,9 @@ public class CommandStateTest {
         almostAll.remove(Phase.EXPIRED);
         
         addTarget(almostAll, Phase.EXPIRED);
-        
-        almostAll.remove(Phase.CREATED);
-        for (Phase p : Phase.values()) {
-            if (!p.passed(Phase.SENT)) {
-                almostAll.remove(p);
-            }
-        }
         addTarget(almostAll, Phase.FINISHED);
+        
+        addTransition(Phase.SENT, Phase.FAILED);
     }
     
     public CommandStateTest() {
@@ -101,6 +92,7 @@ public class CommandStateTest {
         // simulate sent-and-replay
         inst.toPhase(Phase.SENT);
         Thread.sleep(10);
+        inst.toPhase(Phase.REJECTED);
         inst.toPhase(Phase.REPLAYING);
         long tms3 = inst.getTimeQueued();
         assertNotEquals(0, tms3);
@@ -119,6 +111,7 @@ public class CommandStateTest {
         long tms = inst.getTimeSent();
         assertNotEquals(0, tms);
 
+        inst.toPhase(Phase.REJECTED);
         inst.toPhase(Phase.REPLAYING);
         Thread.sleep(10);
         inst.toPhase(Phase.SENT);
@@ -168,9 +161,13 @@ public class CommandStateTest {
             for (Phase to : sorted(notPermitted)) {
                 CommandState inst = new CommandState(new XNetPlusMessage());
                 inst.toPhaseInternal(from);
-                assertThrows("Must not permit " + from + " -> " + to, 
-                    IllegalArgumentException.class, () -> 
-                        inst.toPhase(to));
+                if (from.isFinal()) {
+                    assertFalse(inst.toPhase(to));
+                } else {
+                    assertThrows("Must not permit " + from + " -> " + to, 
+                        IllegalArgumentException.class, () -> 
+                            inst.toPhase(to));
+                }
             }
         }
         

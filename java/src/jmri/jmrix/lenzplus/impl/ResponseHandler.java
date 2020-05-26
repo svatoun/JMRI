@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.impl;
 
 import java.io.IOException;
@@ -31,6 +26,7 @@ import org.slf4j.LoggerFactory;
  * In either case, the transmission thread's state must change only after all replies
  * are read up. Until that time, the state changes are buffered in the ResponseHandler.
  * 
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public final class ResponseHandler extends StateMemento {
     protected final ReplyDispatcher dispatcher;

@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus;
 
 import static jmri.jmrix.AbstractMRTrafficController.AUTORETRYSTATE;
@@ -32,6 +27,8 @@ import jmri.jmrix.lenz.XNetListener;
  * <p>
  * When the Memento is {@link ReplyDispatcher#commit}ted, state and mode change and the
  * transmit thread wakes up.
+ * 
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class StateMemento {
     protected int retransmitCount;

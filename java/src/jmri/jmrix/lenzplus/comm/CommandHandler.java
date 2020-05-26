@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
 import java.lang.ref.Reference;
@@ -38,8 +33,8 @@ import jmri.jmrix.lenzplus.XNetPlusReply;
  * <li>{@link #sent} when a message is sent out. The Handler should change the
  * shared state since the message's effects can be visible on the layout from now on.
  * For example, effects of Accessory Operation Request can be reported back any time
- * after {@code sent()} is called. {@code sent()} MAY be called multiple times, if the message
- * times out or is temporarily rejected by the command station and is being repeated.
+ * after {@code sent()} is called. Note that {@link #sent} is called <b>only once</b>
+ * after a non-rejection message is received.
  * <li>{@link #acceptsReply} to determine if the reply is really a response to the
  * Handler's message. Handler is paired to the reply based on time coincidence, initially; 
  * if the Handler disagrees with the assignment, the reply is processed as solicited.
@@ -57,7 +52,16 @@ import jmri.jmrix.lenzplus.XNetPlusReply;
  * </ol>
  * There's a <b>default CommandHandler</b> that is used if no other handler is willing to handle
  * the message. The default handler is table-driven according to XPressNet 3.6 specification.
- * @author sdedic
+ * <h3>Threading / Concurrency notes</h3>
+ * The CommandHandler implementation executes in <b>multiple threads</b>. The constructor and method 
+ * {@link #addMessage} may execute <b>in any thread</b>, it is called during posting the
+ * message into the queue.
+ * <p>
+ * Methods for <b>message processing</b> are only called in the <b>Layout thread.</b>. They are
+ * free to interact with layout objects. If methods working with managed {@link CommandState}s 
+ * are overriden, the implementation must be thread-safe.
+ * 
+ * @author svatopluk.dedic@gmail.com, Copyrigh (c) 2020
  */
 public class CommandHandler extends CommandState {
     /**
@@ -103,7 +107,7 @@ public class CommandHandler extends CommandState {
      * {@link #command}, but may change if the action sends more 
      * commands.
      */
-    private CommandState currentCommand;
+    private volatile CommandState currentCommand;
     
     public CommandHandler(CommandState commandMessage, XNetListener target) {
         super(commandMessage.getMessage());
@@ -154,6 +158,10 @@ public class CommandHandler extends CommandState {
      */
     public final CommandState getInitialCommand() {
         return command;
+    }
+
+    public CommandState getRepresentativeCommand() {
+        return getInitialCommand();
     }
     
     /**
@@ -209,7 +217,8 @@ public class CommandHandler extends CommandState {
      * The handler must apply any necessary actions to the JMRI shared state to
      * ensure that subsequent evaluation of replies can match the reply's data
      * to the expected layout state to detect inconsistencies.
-     *
+     * <p>
+     * The method is called from the Layout thread.
      * @param msg the command/message that was sent without an error.
      */
     public void sent(CommandState msg) {
@@ -224,9 +233,10 @@ public class CommandHandler extends CommandState {
      * attachment to a {@link XNetPlusMessage} is computed. In case of a solicited reply,
      * the current handler will be called first. All queued handlers will be called
      * in an unspecified order.
-     * s
-     * @param m reply to filter.s
-     * @return 
+     * <p>
+     * The method is called from the Layout thread.
+     * @param m reply to filter
+     * @return true, if some filtering was made. Informative.
      */
     public boolean filterMessage(XNetPlusReply m) {
         return false;
@@ -246,7 +256,8 @@ public class CommandHandler extends CommandState {
      * to the target listener(s) when the command finishes. If the consumed bits
      * are set in the reply passed to the target {@link XNetListener}, the listener
      * may fail process the reply properly.
-     *
+     * <p>
+     * The method is called from the Layout thread.
      * @param msg  the command state
      * @param reply the current reply being processed
      * @return decision on how to proceeed next.
@@ -274,6 +285,8 @@ public class CommandHandler extends CommandState {
      * The command has been finished. Clean up, issue or schedule another
      * Command. The default implementation returns true if the last
      * command has been finished.
+     * <p>
+     * The method is called from the Layout thread.
      * @param finished the finished command
      * @return true, if the action terminates.
      */
@@ -302,7 +315,8 @@ public class CommandHandler extends CommandState {
      * <p>
      * If the handler responds {@code false}, the default procedure to find an appropriate
      * {@link CommandHandler} is used.
-     * 
+     * <p>
+     * <b>Note: this method may be called from arbitrary thread.</b>
      * @param msgState the new message to check
      * @return {@code true}, if the handler is willing to manage the message.
      */
@@ -318,7 +332,7 @@ public class CommandHandler extends CommandState {
      * @param beforeNow {@code true} will insert the message before the current message,
      * even before the initial one. {@code false} will add the message at the end of the list.
      */
-    protected final synchronized void insertMessage(CommandState msg, boolean beforeNow) {
+    public final synchronized void insertMessage(CommandState msg, boolean beforeNow) {
         if (allCommands == null) {
             allCommands = new ArrayList<>(2);
             allCommands.add(getInitialCommand());
@@ -349,6 +363,8 @@ public class CommandHandler extends CommandState {
     /**
      * Determines if the reply can belong to the current command. By default,
      * all replies are accepted.
+     * <p>
+     * The method is called from the Layout thread.
      * @param msg the message that has been just sent.
      * @param reply the reply which was received.
      * @return {@code true}, if the Handler recognizes the reply.
@@ -365,13 +381,18 @@ public class CommandHandler extends CommandState {
      * <p>
      * The Handler may take an appropriate action: repeat the command, inform
      * the Layout object, solicit another state info from the layout etc.
-     * 
+     * <p>
+     * The method is called from the Layout thread.
      * @param st the current command
      * @param reply the unsolicited reply from layout
      * @return true, if the reply indicates a concurrent/conflicting operation.
      */
     public boolean checkConcurrentAction(CommandState st, XNetPlusReply reply) {
         return false;
+    }
+    
+    public void handleConcurrentMessage(XNetPlusReply concurrentReply) {
+        getInitialCommand().getCompletionStatus().setConcurrentReply(concurrentReply);
     }
 
     /**
@@ -410,7 +431,7 @@ public class CommandHandler extends CommandState {
         }
         return s.toPhase(p);
     }
-
+    
     /**
      * Trivial listener, which does nothing.
      */

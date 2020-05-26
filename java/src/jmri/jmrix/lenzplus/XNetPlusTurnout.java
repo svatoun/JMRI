@@ -1,8 +1,7 @@
 package jmri.jmrix.lenzplus;
 
 import jmri.jmrix.lenz.*;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.annotation.concurrent.GuardedBy;
@@ -12,9 +11,7 @@ import javax.annotation.concurrent.GuardedBy;
  * uses advanced queues and does not interfere directly with XPressNet commands.
  * @author sdedic
  */
-public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
-    
-    /* State information */
+public class XNetPlusTurnout extends XNetTurnout implements XNetPlusResponseListener {
     /**
      * OFF message has been sent. Need to send more OFF messages because
      * of design decision (reasons unexplained/undocumented) to send at least 2 of them.
@@ -64,8 +61,6 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
         _prefix = prefix;
         mNumber = pNumber;
 
-        requestList = new ArrayDeque<>();
-
         /* Add additiona feedback types information */
         _validFeedbackTypes |= MONITORING | EXACT | SIGNAL;
 
@@ -79,8 +74,6 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
         _validFeedbackModes = getModeValues();
 
         // Register to get property change information from the superclass
-        _stateListener = new XNetTurnoutStateListener(this);
-        this.addPropertyChangeListener(_stateListener);
         // Finally, request the current state from the layout.
         tc.getFeedbackMessageCache().requestCachedStateFromLayout(this);
     }
@@ -155,22 +148,15 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
             return;
         }
         // get the right packet
-        XNetMessage msg = XNetMessage.getTurnoutCommandMsg(mNumber,
+        XNetPlusMessage msg = XNetPlusMessage.create(XNetMessage.getTurnoutCommandMsg(mNumber,
                 (s & _mClosed) != 0,
                 (s & _mThrown) != 0,
-                true);
+                true));
         if (getFeedbackMode() == SIGNAL) {
-            msg.setTimeout(0); // Set the timeout to 0, so the off message can
-            // be sent immediately.
-            // leave the next line commented out for now.
-            // It may be enabled later to allow SIGNAL mode to ignore
-            // directed replies, which lets the traffic controller move on
-            // to the next message without waiting.
-            //msg.setBroadcastReply();
+            msg.setTimeout(0); 
             tc.sendXNetMessage(msg, null);
-            sendOffMessage();
         } else {
-            queueMessage(msg, COMMANDSENT, this);
+            tc.sendXNetMessage(msg, this);
         }
     }
 
@@ -193,9 +179,9 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
         // with feedback, but the address passed is translated as though it
         // is a turnout address.  As a result, we substitute our base
         // address in for the address. after the message is returned.
-        XNetMessage msg = XNetMessage.getFeedbackRequestMsg(mNumber,
-                ((mNumber - 1) % 4) < 2);
-        queueMessage(msg,IDLE,null); //status is returned via the manager.
+        XNetPlusMessage msg = XNetPlusMessage.create(XNetMessage.getFeedbackRequestMsg(mNumber,
+                ((mNumber - 1) % 4) < 2));
+        tc.sendXNetMessage(msg, null); //status is returned via the manager.
 
     }
 
@@ -230,32 +216,44 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
         internalState = oldState;
     }
 
+    @Override
+    public void completed(CompletionStatus s) {
+        XNetPlusMessage m = s.getCommand();
+        if (!m.getCommandedOutputState()) {
+            return;
+        }
+        switch (getFeedbackMode()) {
+            case EXACT:
+                completeExactModeFeedback(s);
+                break;
+            case MONITORING:
+                knownStateFromFeedback(s.getReply(), true);
+                break;
+            case DIRECT:
+            default:
+                // Default is direct mode
+                knownStateFromFeedback(s.getReply(), true);
+        }
+    }
+
+    @Override
+    public void concurrentLayoutOperation(CompletionStatus s) {
+        syncAfterConcurrentMessage();
+    }
+
+    @Override
+    public void failed(CompletionStatus s) {
+        if (s.isTimeout()) {
+            sendOffMessage(s.getCommand());
+        }
+    }
+    
     /**
      * Handle an incoming message from the XpressNet.
      */
     @Override
-    public synchronized void message(XNetReply l) {
+    public synchronized void message(XNetPlusReply l) {
         log.debug("received message: {}", l);
-        if (internalState == OFFSENT) {
-            if (l.isOkMessage() && !l.isUnsolicited()) {
-                /* the command was successfully received */
-                synchronized (this) {
-                    newKnownState(getCommandedState());
-                }
-                sendQueuedMessage();
-                return;
-            } else if (l.isRetransmittableErrorMsg()) {
-                return; // don't do anything, the Traffic
-                // Controller is handling retransmitting
-                // this one.
-            } else {
-                /* Default Behavior: If anything other than an OK message
-                 is received, Send another OFF message. */
-                log.debug("Message is not OK message. Message received was: {}", l);
-                sendOffMessage();
-            }
-        }
-
         switch (getFeedbackMode()) {
             case EXACT:
                 handleExactModeFeedback(l);
@@ -266,7 +264,7 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
             case DIRECT:
             default:
                 // Default is direct mode
-                handleDirectModeFeedback(l);
+                // no action: command-related actions are handled in completed()
         }
     }
 
@@ -281,62 +279,14 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
      * Handle a timeout notification.
      */
     @Override
-    public synchronized void notifyTimeout(XNetMessage msg) {
+    public synchronized void notifyTimeout(XNetPlusMessage msg) {
         log.debug("Notified of timeout on message {}", msg);
         // If we're in the OFFSENT state, we need to send another OFF message.
-        if (internalState == OFFSENT) {
+        if (!msg.getCommandedOutputState()) {
             sendOffMessage();
         }
     }
-
-    /**
-     *  With Direct Mode feedback, if we see ANY valid response to our
-     *  request, we ask the command station to stop sending information
-     *  to the stationary decoder.
-     *  <p>
-     *  No effort is made to interpret feedback when using direct mode.
-     *
-     *  @param l an {@link XNetReply} message
-     */
-    private synchronized void handleDirectModeFeedback(XNetReply l) {
-        /* If commanded state does not equal known state, we are
-         going to check to see if one of the following conditions
-         applies:
-         1) The received message is a feedback message for a turnout
-         and one of the two addresses to which it applies is our
-         address
-         2) We receive an "OK" message, indicating the command was
-         successfully sent
-
-         If either of these two cases occur, we trigger an off message
-         */
-
-        log.debug("Handle Message for turnout {} in DIRECT feedback mode   ", mNumber);
-        if (internalState == STATUSREQUESTSENT && l.isUnsolicited()) {
-            // set the reply as being solicited
-            l.resetUnsolicited();
-        }
-        if (getCommandedState() != getKnownState() || internalState == COMMANDSENT) {
-            if (l.isOkMessage()) {
-                // Finally, we may just receive an OK message.
-                log.debug("Turnout {} DIRECT feedback mode - OK message triggering OFF message.", mNumber);
-            } else {
-                // implicitly checks for isFeedbackBroadcastMessage()
-                if (!l.selectTurnoutFeedback(mNumber).isPresent()) {
-                    return;
-                }
-                log.debug("Turnout {} DIRECT feedback mode - directed reply received.", mNumber);
-                // set the reply as being solicited
-                if (l.isUnsolicited()) {
-                    l.resetUnsolicited();
-                }
-            }
-            sendOffMessage();
-            // Explicitly send two off messages in Direct Mode
-            sendOffMessage();
-        }
-    }
-
+    
     /**
      *  With Monitoring Mode feedback, if we see a feedback message, we
      *  interpret that message and use it to display our feedback.
@@ -347,36 +297,153 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
      *
      *  @param l an {@link XNetReply} message
      */
-    private synchronized void handleMonitoringModeFeedback(XNetReply l) {
+    private synchronized void handleMonitoringModeFeedback(XNetPlusReply l) {
         /* In Monitoring Mode, We have two cases to check if CommandedState
          does not equal KnownState, otherwise, we only want to check to
          see if the messages we receive indicate this turnout chagned
          state
          */
         log.debug("Handle Message for turnout {} in MONITORING feedback mode ", mNumber);
-        if (internalState == IDLE || internalState == STATUSREQUESTSENT) {
-            if (l.onTurnoutFeedback(mNumber, this::parseFeedbackMessage)) {
-                log.debug("Turnout {} MONITORING feedback mode - state change from feedback.", mNumber);
+        if (knownStateFromFeedback(l, true)) {
+            log.debug("Turnout {} MONITORING feedback mode - state change from feedback.", mNumber);
+        }
+    }
+    
+    @GuardedBy("this")
+    private ExactMotionCompleter    motionCompleter;
+    
+    @GuardedBy("this")
+    private ExactMotionCompleter    postCommandResync;
+    
+    private synchronized void waitMotionComplete(boolean resyncCommandedState) {
+        if (motionCompleter == null) {
+            motionCompleter = new ExactMotionCompleter();
+        }
+        motionCompleter.resyncCommandedState |= resyncCommandedState;
+    }
+    
+    private synchronized void syncAfterConcurrentMessage() {
+        if (postCommandResync != null) {
+            return;
+        }
+        postCommandResync = new ExactMotionCompleter();
+        postCommandResync.inquiry(true);
+    }
+    
+    /**
+     * Serves two purposes. It watches out for 'motion complete' signal to
+     * set the KnownState to the final state after movement completes. And it
+     * serves as a post-command handler in case a concurrent alien turnout message
+     * seems to appear on the layout, so that KnownState AND CommandState
+     * is properly updated at the end.
+     */
+    class ExactMotionCompleter implements XNetPlusResponseListener {
+        /**
+         * Flag that can be set up during lifetime. After motion completes,
+         * an low-priority inquiry will be sent after all commands complete.
+         */
+        @GuardedBy("XNetPlusTurnout.this")
+        private boolean resyncCommandedState;
+        
+        public ExactMotionCompleter() {
+        }
+        
+        void markConcurrent() {
+            resyncCommandedState = true;
+        }
+        
+        /**
+         * Sends an inquiry into the layout. 
+         * @param recheck 
+         */
+        void inquiry(boolean recheck) {
+            log.debug("Turnout {} EXACT feedback mode - state change from feedback, CommandedState!=KnownState - motion not complete", mNumber);
+            // If the motion is NOT complete, send a feedback
+            // request for this nibble
+            int prio = recheck ? 
+                    XNetPlusMessage.DEFAULT_PRIORITY + 10 : 
+                    XNetPlusMessage.DEFAULT_PRIORITY - 10;
+            XNetPlusMessage msg = XNetPlusMessage.create(XNetMessage.getFeedbackRequestMsg(
+                    mNumber, ((mNumber % 4) <= 1))).
+                    // delay the query a little
+                    delayed(100).
+                    // give GREATER priority than motion commands. This will block further
+                    // switches until we're satisfied.
+                    asPriority(prio);
+            tc.sendXNetMessage(msg, this);
+        }
+
+        @Override
+        public void completed(CompletionStatus s) {
+            XNetPlusReply r = s.getReply();
+            FeedbackItem fi = r.selectTurnoutFeedback(mNumber, true).orElseThrow(
+                    () -> new IllegalStateException("Fedback expected"));
+            
+            boolean protectCommand = true;
+            if (!fi.isMotionComplete()) {
+                inquiry(false);
+                return;
             }
-        } else if (getCommandedState() != getKnownState()
-                || internalState == COMMANDSENT) {
-            if (l.isOkMessage()) {
-                // Finally, we may just receive an OK message.
-                log.debug("Turnout {} MONITORING feedback mode - OK message triggering OFF message.", mNumber);
-                sendOffMessage();
-            } else {
-                // In Monitoring mode, treat both turnouts with feedback
-                // and turnouts without feedback as turnouts without
-                // feedback.  i.e. just interpret the feedback
-                // message, don't check to see if the motion is complete
-                // implicitly checks for isFeedbackBroadcastMessage()
-                if (l.onTurnoutFeedback(mNumber, this::parseFeedbackMessage)) {
-                    // We need to tell the turnout to shut off the output.
-                    log.debug("Turnout {} MONITORING feedback mode - state change from feedback, CommandedState != KnownState.", mNumber);
-                    sendOffMessage();
+            synchronized (XNetPlusTurnout.this) {
+                if (this == motionCompleter) {
+                    // we are motion completer
+                    motionCompleter = null;
+                } else if (resyncCommandedState) {
+                    if (postCommandResync == this) {
+                        // we are the resync instance. Update both KnownState and CommandState
+                        protectCommand = false;
+                        // break the inquiry loop
+                        resyncCommandedState = false;
+                        postCommandResync = null;
+                    } else if (postCommandResync == null) {
+                        // no resync is scheduled, it will be us:
+                        postCommandResync = this;
+                    }
                 }
             }
+            knownStateFromFeedback(r, protectCommand);
+            if (resyncCommandedState) {
+                inquiry(true);
+            }
         }
+
+        @Override
+        public void failed(CompletionStatus s) {
+            XNetPlusResponseListener.super.failed(s); //To change body of generated methods, choose Tools | Templates.
+        }
+        
+    }
+    
+    private synchronized void completeExactModeFeedback(CompletionStatus s) {
+        XNetPlusReply reply = s.getReply();
+        // implicitly checks for isFeedbackBroadcastMessage()
+        Optional<FeedbackPlusItem> opt = reply.selectTurnoutFeedback(mNumber);
+        if (opt.isPresent()) {
+            FeedbackPlusItem l = opt.get();
+            int messageType = l.getType();
+            if (messageType == 1 && !l.isMotionComplete()) {
+                log.debug("Turnout {} EXACT feedback mode - state change from feedback, CommandedState!=KnownState - motion not complete", mNumber);
+                waitMotionComplete(s.getConcurrentReply() != null);
+            } else {
+                knownStateFromFeedback(reply, true);
+            }
+        }
+    }
+    
+    private boolean ignoreCommanded;
+
+    private boolean knownStateFromFeedback(XNetPlusReply r, boolean protectCommand) {
+        Optional<FeedbackPlusItem> opt = r.selectTurnoutFeedback(mNumber, true);
+        boolean b;
+        if (opt.isPresent()) {
+            b = parseFeedbackMessage(opt.get(), r, protectCommand);
+        } else {
+            b = false;
+        }
+        if (b && r.isConcurrent()) {
+            syncAfterConcurrentMessage();
+        }
+        return b;
     }
 
     /**
@@ -389,104 +456,47 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
      *
      *  @param reply The reply message to process
      */
-    private synchronized void handleExactModeFeedback(XNetReply reply) {
+    private synchronized void handleExactModeFeedback(XNetPlusReply reply) {
         // We have three cases to check if CommandedState does
         // not equal KnownState, otherwise, we only want to check to
         // see if the messages we receive indicate this turnout chagned
         // state
         log.debug("Handle Message for turnout {} in EXACT feedback mode ", mNumber);
-        if (getCommandedState() == getKnownState()
-                && (internalState == IDLE || internalState == STATUSREQUESTSENT)) {
-            // This is a feedback message, we need to check and see if it
-            // indicates this turnout is to change state or if it is for
-            // another turnout.
-            if (reply.onTurnoutFeedback(mNumber, this::parseFeedbackMessage)) {
-                log.debug("Turnout {} EXACT feedback mode - state change from feedback.", mNumber);
+        // implicitly checks for isFeedbackBroadcastMessage()
+        reply.selectTurnoutFeedback(mNumber, true).ifPresent(l -> {
+            if (l.getType() == 1 && !l.isMotionComplete()) {
+                waitMotionComplete(reply.isConcurrent());
+                return;
             }
-        } else if (getCommandedState() != getKnownState()
-                || internalState == COMMANDSENT
-                || internalState == STATUSREQUESTSENT) {
-            if (reply.isOkMessage()) {
-                // Finally, we may just receive an OK message.
-                log.debug("Turnout {} EXACT feedback mode - OK message triggering OFF message.", mNumber);
-                sendOffMessage();
-            } else {
-                // implicitly checks for isFeedbackBroadcastMessage()
-                reply.selectTurnoutFeedback(mNumber).ifPresent(l -> {
-                    int messageType = l.getType();
-                    switch (messageType) {
-                        case 1: {
-                            // The first case is that we receive a message for
-                            // this turnout and this turnout provides feedback.
-                            // In this case, we want to check to see if the
-                            // turnout has completed its movement before doing
-                            // anything else.
-                            if (!l.isMotionComplete()) {
-                                log.debug("Turnout {} EXACT feedback mode - state change from feedback, CommandedState!=KnownState - motion not complete", mNumber);
-                                // If the motion is NOT complete, send a feedback
-                                // request for this nibble
-                                XNetMessage msg = XNetMessage.getFeedbackRequestMsg(
-                                        mNumber, ((mNumber % 4) <= 1));
-                                queueMessage(msg,STATUSREQUESTSENT ,null); //status is returned via the manager.
-                                return;
-                            } else {
-                                log.debug("Turnout {} EXACT feedback mode - state change from feedback, CommandedState!=KnownState - motion complete", mNumber);
-                            }
-                            break;
-                        }
-                        case 0: 
-                            log.debug("Turnout {} EXACT feedback mode - state change from feedback, CommandedState!=KnownState - motion complete", mNumber);
-                            // The second case is that we receive a message about
-                            // this turnout, and this turnout does not provide
-                            // feedback. In this case, we want to check the
-                            // contents of the message and act accordingly.
-                            break;
-                        default: return;
-                    }
-                    parseFeedbackMessage(l);
-                    // We need to tell the turnout to shut off the output.
-                    sendOffMessage();
-                });
-            }
-        }
+            parseFeedbackMessage(l, reply, true);
+        });
     }
     
     /**
      * Send an "Off" message to the decoder for this output. 
      */
+    @Override
     protected synchronized void sendOffMessage() {
-        // We need to tell the turnout to shut off the output.
-        if (log.isDebugEnabled()) {
-            log.debug("Sending off message for turnout {} commanded state={}", mNumber, getCommandedState());
-            log.debug("Current Thread ID: {} Thread Name {}", java.lang.Thread.currentThread().getId(), java.lang.Thread.currentThread().getName());
-        }
-        XNetMessage msg = getOffMessage();
-        // Set the known state to the commanded state.
-        synchronized (this) {
-        // To avoid some of the command station busy
-        // messages, add a short delay before sending the
-        // first off message.
-            if (internalState != OFFSENT) {
-            jmri.util.ThreadingUtil.runOnLayoutDelayed( () ->
-               tc.sendHighPriorityXNetMessage(msg, this), 30);
-                newKnownState(getCommandedState());
-                internalState = OFFSENT;
-                return;
-        }
+    }
+    
+    private void sendOffMessage(XNetPlusMessage command) {
+        int cmd = command.getCommandedTurnoutStatus();
+        XNetPlusMessage off = XNetPlusMessage.create(XNetMessage.getTurnoutCommandMsg(mNumber,
+                cmd == CLOSED, cmd == THROWN, false)).
+                delayed(100).
+                asPriority(XNetPlusMessage.HIGH_PRIORITY);
         newKnownState(getCommandedState());
-                internalState = OFFSENT;
-        }
         // Then send the message.
-        tc.sendHighPriorityXNetMessage(msg, this);
+        tc.sendHighPriorityXNetMessage(off, this);
     }
-
-    protected synchronized XNetMessage getOffMessage(){
-        return ( XNetMessage.getTurnoutCommandMsg(mNumber,
-                getCommandedState() == _mClosed,
-                getCommandedState() == _mThrown,
-                false) );
+    
+    @Override
+    protected void newCommandedState(int s) {
+        if (!ignoreCommanded) {
+            super.newCommandedState(s);
+        }
     }
-
+    
     /**
      * Parse the feedback message, and set the status of the turnout
      * accordingly.
@@ -495,168 +505,60 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetListener {
      * 
      * @return 0 if address matches our turnout -1 otherwise
      */
-    private synchronized boolean parseFeedbackMessage(FeedbackItem l) {
+    private synchronized boolean parseFeedbackMessage(FeedbackPlusItem l, XNetPlusReply r, boolean protectCommanded) {
         log.debug("Message for turnout {}", mNumber);
-        if (internalState != IDLE && l.isUnsolicited()) {
-            l.resetUnsolicited();
-        }
+        int n = -1;
         switch (l.getTurnoutStatus()) {
             case THROWN:
-                newKnownState(_mThrown);
-                return true;
+                n = _mThrown;
+                break;
             case CLOSED:
-                newKnownState(_mClosed);
-                return true;
+                n = _mClosed;
+                break;
             default:
                 // the state is unknown or inconsistent.  If the command state
                 // does not equal the known state, and the command repeat the
                 // last command
-                if (getCommandedState() != getKnownState()) {
-                    forwardCommandChangeToLayout(getCommandedState());
-                } else {
-                    sendQueuedMessage();
+                XNetPlusMessage cmd = r.getResponseTo();
+                int cs = cmd != null ? cmd.getCommandedTurnoutStatus() : getCommandedState();
+                if (cs != getKnownState()) {
+                    forwardCommandChangeToLayout(cs);
                 }
                 return false;
+        }
+        int fn = n;
+        newKnownState(n, l.isConsumed() & protectCommanded);
+        return true;
+    }
+    
+    private void newKnownState(int curKnownState, boolean onlyKnown) {
+        boolean save = ignoreCommanded;
+        try {
+            ignoreCommanded = onlyKnown;
+            newKnownState(curKnownState);
+        } finally {
+            ignoreCommanded = save;
         }
     }
     
     @Override
-    public void dispose() {
-        this.removePropertyChangeListener(_stateListener);
-        super.dispose();
-    }
-
-    /**
-     * Internal class to use for listening to state changes.
-     */
-    private static class XNetTurnoutStateListener implements java.beans.PropertyChangeListener {
-
-        XNetPlusTurnout _turnout = null;
-
-        XNetTurnoutStateListener(XNetPlusTurnout turnout) {
-            _turnout = turnout;
-        }
-
-        /**
-         * If we're  not using DIRECT feedback mode, we need to listen for
-         * state changes to know when to send an OFF message after we set the
-         * known state.
-         * If we're using DIRECT mode, all of this is handled from the
-         * XpressNet Messages.
-         */
-        @Override
-        public void propertyChange(java.beans.PropertyChangeEvent event) {
-            log.debug("propertyChange called");
-            // If we're using DIRECT feedback mode, we don't care what we see here
-            if (_turnout.getFeedbackMode() != DIRECT) {
-                if (log.isDebugEnabled()) {
-                    log.debug("propertyChange Not Direct Mode property: {} old value {} new value {}", event.getPropertyName(), event.getOldValue(), event.getNewValue());
-                }
-                if (event.getPropertyName().equals("KnownState")) {
-                    // Check to see if this is a change in the status
-                    // triggered by a device on the layout, or a change in
-                    // status we triggered.
-                    int oldKnownState = ((Integer) event.getOldValue()).intValue();
-                    int curKnownState = ((Integer) event.getNewValue()).intValue();
-                    log.debug("propertyChange KnownState - old value {} new value {}", oldKnownState, curKnownState);
-                    if (curKnownState != INCONSISTENT
-                            && _turnout.getCommandedState() == oldKnownState) {
-                        // This was triggered by feedback on the layout, change
-                        // the commanded state to reflect the new Known State
-                        if (log.isDebugEnabled()) {
-                            log.debug("propertyChange CommandedState: {}", _turnout.getCommandedState());
-                        }
-                        _turnout.newCommandedState(curKnownState);
-                    } else {
-                        // Since we always set the KnownState to
-                        // INCONSISTENT when we send a command, If the old
-                        // known state is INCONSISTENT, we just want to send
-                        // an off message
-                        if (oldKnownState == INCONSISTENT) {
-                            if (log.isDebugEnabled()) {
-                                log.debug("propertyChange CommandedState: {}", _turnout.getCommandedState());
-                            }
-                            _turnout.sendOffMessage();
-                        }
-                    }
-                }
+    public void newKnownState(int curKnownState) {
+        boolean changeCommanded = false;
+        synchronized (this) {
+            int oldKnownState = getKnownState();
+            if (curKnownState != INCONSISTENT
+                    && getCommandedState() == oldKnownState) {
+                changeCommanded = true;
             }
         }
-
+        super.newKnownState(curKnownState); 
+        if (changeCommanded && !ignoreCommanded) {
+            newCommandedState(curKnownState);
+        }
     }
 
     // data members
     protected int mNumber;   // XpressNet turnout number
-    XNetTurnoutStateListener _stateListener;  // Internal class object
-
-    // A queue to hold outstanding messages
-    @GuardedBy("this")
-    protected final Deque<RequestMessage> requestList;
-
-    /**
-     * Send message from queue.
-     */
-    protected synchronized void sendQueuedMessage() {
-
-        RequestMessage msg = null;
-        // check to see if the queue has a message in it, and if it does,
-        // remove the first message
-        msg = requestList.poll();
-        // if the queue is not empty, remove the first message
-        // from the queue, send the message, and set the state machine
-        // to the requried state.
-        if (msg != null) {
-            log.debug("sending message to traffic controller");
-            internalState = msg.getState();
-            tc.sendXNetMessage(msg.getMsg(), msg.getListener());
-        } else {
-            log.debug("message queue empty");
-            // if the queue is empty, set the state to idle.
-            internalState = IDLE;
-        }
-    }
-    
-    /**
-     * Queue a message.
-     */
-    protected synchronized void queueMessage(XNetMessage m, int s, XNetListener l) {
-        log.debug("adding message {} to message queue.  Current Internal State {}",m,internalState);
-        // put the message in the queue
-        RequestMessage msg = new RequestMessage(m, s, l);
-        requestList.offer(msg);
-        // if the state is idle, trigger the message send
-        if (internalState == IDLE ) {
-            sendQueuedMessage();
-        }
-    }
-
-    /**
-     * Internal class to hold a request message, along with the associated throttle state.
-     */
-    protected static class RequestMessage {
-
-        private int state;
-        private XNetMessage msg;
-        private XNetListener listener;
-
-        RequestMessage(XNetMessage m, int s, XNetListener listener) {
-            state = s;
-            msg = m;
-            this.listener = listener;
-        }
-
-        int getState() {
-            return state;
-        }
-
-        XNetMessage getMsg() {
-            return msg;
-        }
-
-        XNetListener getListener() {
-            return listener;
-        }
-    }
 
     private static final Logger log = LoggerFactory.getLogger(XNetPlusTurnout.class);
 

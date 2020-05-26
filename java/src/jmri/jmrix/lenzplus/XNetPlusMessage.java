@@ -17,6 +17,7 @@ import jmri.jmrix.lenz.XNetMessage;
 public class XNetPlusMessage extends XNetMessage {
     private volatile int initialDelay;
     private XNetListener replyTarget;
+    private Object callerId;
     
     public XNetPlusMessage() {
         super(1);
@@ -63,6 +64,15 @@ public class XNetPlusMessage extends XNetMessage {
     public XNetPlusMessage delayed(int millis) {
         this.initialDelay = millis;
         return this;
+    }
+    
+    public XNetPlusMessage withCallerId(Object id) {
+        this.callerId = id;
+        return this;
+    }
+
+    public Object getCallerId() {
+        return callerId;
     }
 
     /**
@@ -125,6 +135,19 @@ public class XNetPlusMessage extends XNetMessage {
         int d2 = getElement(2);
         int n = getElement(1) << 2 | ((d2 & 0b0110) >> 1);
         return n + 1;
+    }
+    
+    public int getAccessoryQueryBase() {
+        if (getElement(0) != XNetConstants.ACC_INFO_REQ) {
+            return -1;
+        }
+        return getElement(1) * 4 + ((getElement(2) & 0x01) * 2) + 1;
+    }
+    
+    public boolean isAccessoryQuery(int accessoryId) {
+        int b = getAccessoryQueryBase();
+        int base = getElement(1) * 4 + ((getElement(2) & 0x01) * 2) + 1;
+        return accessoryId == base || accessoryId == base +1;
     }
     
     /**

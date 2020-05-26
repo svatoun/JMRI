@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus;
 
 import java.util.Iterator;
@@ -13,7 +8,6 @@ import java.util.Spliterators;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import jmri.jmrix.AbstractMRReply;
-import jmri.jmrix.lenz.FeedbackItem;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetReply;
 import org.slf4j.Logger;
@@ -34,7 +28,7 @@ import org.slf4j.LoggerFactory;
  * a Broadcast may be attached and become a solicited response. 
  * <p>
  * 
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class XNetPlusReply extends XNetReply {
     /**
@@ -66,6 +60,11 @@ public class XNetPlusReply extends XNetReply {
      * Computed solicited status.
      */
     private Boolean solicitedStatus;
+    
+    /**
+     * The reply is an unsolicited possibly concurrent change.
+     */
+    private XNetPlusMessage concurrentCommand;
     
     private final XNetPlusReply original;
     
@@ -109,6 +108,7 @@ public class XNetPlusReply extends XNetReply {
     }
     
     private XNetPlusReply(XNetPlusReply r) {
+        super(r);
         super.resetUnsolicited();
         this.original = r;
         consumed = r.consumed;
@@ -298,14 +298,25 @@ public class XNetPlusReply extends XNetReply {
     
     public void markSolicited(boolean mark) {
         this.solicitedStatus = mark;
+        if (!mark) {
+            setResponseTo(null);
+        }
     }
     
     public Stream<FeedbackPlusItem> feedbacks() {
+        return feedbacks(false);
+    }
+    
+    public Stream<FeedbackPlusItem> feedbacks(boolean allowConsumed) {
         FeedbackIterable it = new FeedbackIterable(this);
         Spliterator<FeedbackPlusItem> spl = Spliterators.spliterator(it.iterator(), it.getSize(), 
                 Spliterator.DISTINCT | Spliterator.NONNULL |
                         Spliterator.ORDERED);
-        return StreamSupport.stream(spl, false).filter(f -> !f.isConsumed());
+        if (allowConsumed) {
+            return StreamSupport.stream(spl, false);
+        } else {
+            return StreamSupport.stream(spl, false).filter(f -> !f.isConsumed());
+        }
     }
     
     public Stream<FeedbackPlusItem> allFeedbacks() {
@@ -356,6 +367,15 @@ public class XNetPlusReply extends XNetReply {
         return sb.toString();
     }
 
+    public boolean isConcurrent() {
+        return concurrentCommand != null;
+    }
+
+    public XNetPlusReply markConcurrent(XNetPlusMessage concurrentCommand) {
+        this.concurrentCommand = concurrentCommand;
+        return this;
+    }
+
     private static final class FeedbackIterable implements Iterable<FeedbackPlusItem> {
         private final XNetPlusReply feedbackMesage;
 
@@ -393,18 +413,26 @@ public class XNetPlusReply extends XNetReply {
                         throw new NoSuchElementException();
                     }
                     cnt--;
-                    int n = feedbackMesage.getTurnoutMsgAddr(index);
+                    int n = feedbackMesage.getTurnoutMsgAddr(1);
                     odd = !odd;
                     // warning, reversed !
                     if (odd) {
-                        return feedbackMesage.createFeedbackItem(n + 1, feedbackMesage.getElement(1 + index * 2));
+                        return feedbackMesage.createFeedbackItem(n + 1, feedbackMesage.getElement(2 + index * 2));
                     } else {
-                        return feedbackMesage.createFeedbackItem(n, feedbackMesage.getElement(1 + index * 2));
+                        return feedbackMesage.createFeedbackItem(n, feedbackMesage.getElement(2 + index * 2));
                     }
                 }
             };
         }
 
+    }
+    
+    public <T> T getCommandCallerId() {
+        if (responseTo == null) {
+            return null;
+        } else {
+            return (T)responseTo.getCallerId();
+        }
     }
     
     public XNetPlusReply copy() {

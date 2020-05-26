@@ -1,15 +1,7 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.impl;
 
 import jmri.jmrix.lenzplus.comm.CommandState;
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
-import jmri.jmrix.lenzplus.impl.ReplyDispatcher;
-import jmri.jmrix.lenzplus.impl.ReplySource;
-import jmri.jmrix.lenzplus.impl.ResponseHandler;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +27,7 @@ import static org.junit.Assert.*;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class ResponseHandlerTest implements ReplySource, ReplyDispatcher {
     private TestMemento initialMemento = new TestMemento();

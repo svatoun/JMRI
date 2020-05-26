@@ -1,17 +1,22 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
 import java.util.function.Consumer;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.XNetPlusReply;
+import jmri.jmrix.lenzplus.comm.CommandState.Phase;
 
 /**
  * Defines the outcome and desired action of the received reply's processing.
+ * It is produced by {@link CommandHandler#processed} and collects info for 
+ * {@link ResponseHandler} so it can either wait for an additional message from 
+ * the layout or finish message processing. Other intermediary objects can
+ * inspect the CommandHandler's decision and act appropriately.
+ * <p>
+ * If an exception occurs reply handling in "outside" code (i.e. XNetListeners),
+ * the exception should be recorded using {@link #withError}; all errors
+ * will be logged centrally.
  * 
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com, Copyrigh (c) 2020
  */
 public final class ReplyOutcome {
     private final CommandState state;
@@ -39,7 +44,7 @@ public final class ReplyOutcome {
         this.state = state;
         // makes a copy
         this.reply = reply;
-        if (state != null) {
+        if (state != null && reply != null) {
             this.targetReply = reply.copy();
         } else {
             this.targetReply = reply;
@@ -56,6 +61,10 @@ public final class ReplyOutcome {
     ReplyOutcome mark(Consumer<XNetPlusReply> marker) {
         this.marker = marker;
         return this;
+    }
+    
+    public Phase getPhase() {
+        return state == null ? Phase.FINISHED : state.getPhase();
     }
     
     public void markConsumed() {
@@ -78,6 +87,10 @@ public final class ReplyOutcome {
     public Throwable getException() {
         return exception;
     }
+    
+    public XNetPlusMessage getMessage() {
+        return state == null ? null : state.getMessage();
+    }
 
     public CommandState getState() {
         return state;
@@ -90,6 +103,33 @@ public final class ReplyOutcome {
     public XNetPlusReply getTargetReply() {
         return targetReply;
     }
+    
+    public boolean isMessageFinished() {
+        if (!complete) {
+            return false;
+        }
+        if (state == null) {
+            return true;
+        }
+        Phase p = getPhase();
+        return p != Phase.REJECTED;
+    }
+
+    public ReplyOutcome reject() {
+        setComplete(true);
+        if (state != null) {
+            state.toPhase(Phase.REJECTED);
+        }
+        return this;
+    }
+    
+    public ReplyOutcome fail() {
+        setComplete(true);
+        if (state != null) {
+            state.toPhase(Phase.FAILED);
+        }
+        return this;
+    }
 
     public boolean isComplete() {
         return complete;
@@ -100,6 +140,8 @@ public final class ReplyOutcome {
     }
     
     public ReplyOutcome finish() {
+        // DO NOT phase the state to FINISH, finish outcomes
+        // are created speculatively.
         setComplete(true);
         return this;
     }

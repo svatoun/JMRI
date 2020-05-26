@@ -1,23 +1,17 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.comm.CommandState.Phase;
-import jmri.jmrix.lenzplus.impl.DefaultHandler;
+import jmri.jmrix.lenzplus.impl.base.DefaultHandler;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class CommandQueueTest {
     CommandQueue q = new CommandQueue();
@@ -431,17 +425,6 @@ public class CommandQueueTest {
         
         assertSame(a2On, q.poll());
         assertSame(cOn, q.poll());
-    }
-    
-    /**
-     * Checks that removing an unfinished command fails with IllegalState.
-     */
-    @Test
-    public void testRemoveUnfinishedFails() throws Exception {
-        q.add(aOn, false);
-        q.add(aOff, true);
-        
-        Assert.assertThrows(IllegalStateException.class, () -> q.remove(aOff));
     }
     
     @Test

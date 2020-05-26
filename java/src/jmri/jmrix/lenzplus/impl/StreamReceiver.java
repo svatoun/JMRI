@@ -5,7 +5,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import javax.annotation.CheckForNull;
 import javax.annotation.concurrent.GuardedBy;
 import jmri.jmrix.lenzplus.XNetPlusMessage;

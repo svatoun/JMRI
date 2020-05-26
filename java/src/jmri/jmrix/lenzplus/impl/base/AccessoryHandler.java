@@ -1,12 +1,5 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-package jmri.jmrix.lenzplus.impl;
+package jmri.jmrix.lenzplus.impl.base;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import jmri.Turnout;
 import jmri.jmrix.lenz.XNetListener;
@@ -22,7 +15,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class AccessoryHandler extends CommandHandler {
     private final int desiredState;
@@ -42,6 +35,7 @@ public class AccessoryHandler extends CommandHandler {
             throw new IllegalStateException();
         }
         setLayoutId(n);
+        commandMessage.setCommandGroupKey(n);
         desiredState = msg.getCommandedTurnoutStatus();
     }
     
@@ -88,6 +82,7 @@ public class AccessoryHandler extends CommandHandler {
         XNetPlusMessage msg = msgState.getMessage();
         if (offCommand == null && isMatchingOffCommand(msg)) {
             offCommand = msgState;
+            offCommand.setCommandGroupKey(getLayoutId());
             insertMessage(msgState, false);
             return true;
         }
@@ -108,11 +103,6 @@ public class AccessoryHandler extends CommandHandler {
                reply.feedbackMatchesAccesoryCommand(msg);
     }
     
-    protected void postRecheck() {
-        LOG.debug("Posting status re-check from layout for {}", getLayoutId());
-        getQueue().requestAccessoryStatus(getLayoutId());
-    }
-
     protected CommandState getOffCommand() {
         return offCommand;
     }
@@ -134,21 +124,12 @@ public class AccessoryHandler extends CommandHandler {
             if (!reply.isOkMessage()) {
                 LOG.error("Unexpected reply to OFF message: {}", reply);
             }
-            return ReplyOutcome.finished(command, reply);
+            return ReplyOutcome.finished(msg, reply);
         } else {
             super.processed(msg, reply);
             ReplyOutcome out = new ReplyOutcome(command, reply);
             
-            if (reply.isFeedbackMessage()) {
-                // count a non-broadcast feedback as a OK message; there won't be 
-                // anything else.
-                if (!reply.isBroadcast()) {
-                    command.addOkMessage();
-                }
-                markOutcome(out, r -> 
-                    r.selectTurnoutFeedback(getLayoutId()).ifPresent(FeedbackPlusItem::consume)
-                );
-            }
+            processFeedbackStatus(msg, reply);
             if (command.getOkReceived() == 0) {
                 out.setAdditionalReplyRequired(true);
                 return out;
@@ -159,15 +140,34 @@ public class AccessoryHandler extends CommandHandler {
             return out;
         }
     }
+    
+    void processFeedbackStatus(CommandState msg, XNetPlusReply reply) {
+        if (!reply.isFeedbackMessage()) {
+            return;
+        }
+        if (!reply.isBroadcast()) {
+            command.addOkMessage();
+        }
+
+        FeedbackPlusItem item = reply.selectTurnoutFeedback(getLayoutId()).orElseThrow(
+                () -> new IllegalStateException("Accepted message does not contain our feedback: " + reply));
+
+        // mark as expected
+        item.consume();
+
+        item = item.pairedAccessoryItem();
+        int expectedState = getQueue().getAccessoryState(item.getAddress());
+        if ((expectedState == Turnout.UNKNOWN) || (expectedState == item.getTurnoutStatus())) {
+            // the other paired item does not bring any new value, so mark it as consumed. It's just a confirmation
+            // of our command.
+            item.consume();
+        }
+    }
 
     @Override
     public boolean finished(ReplyOutcome outcome, CommandState finished) {
         super.finished(outcome, finished);
         if (finished == offCommand) {
-            // maybe trigger a re-check
-            if (recheckNeeded) {
-                postRecheck();
-            }
             return true;
         }
         // generate OFF command, and attach to this handler.
@@ -182,6 +182,7 @@ public class AccessoryHandler extends CommandHandler {
         insertMessage(offCommand = getQueue().send(this, 
                 msg.delayed(30).asPriority(true),
                 null), false);
+        offCommand.setCommandGroupKey(getLayoutId());
         return false;
     }
 
@@ -194,14 +195,13 @@ public class AccessoryHandler extends CommandHandler {
         XNetPlusMessage m = st.getMessage();
         if (m.getCommandedOutputState()) {
             Optional<FeedbackPlusItem> f = reply.selectTurnoutFeedback(getLayoutId());
-            if (f.isPresent() && !reply.feedbackMatchesAccesoryCommand(m)) {
-                postRecheck();
+            if (f.isPresent()) {
                 return true;
             };
         }
         return false;
     }
-    
+
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("Accessory: ");

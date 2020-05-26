@@ -1,16 +1,11 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus;
 
 import jmri.jmrix.lenz.FeedbackItem;
 import jmri.jmrix.lenz.XNetReply;
 
 /**
- *
- * @author sdedic
+ * Extension of {@link #FeedbackItem} that supports marking as 'consumed'.
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class FeedbackPlusItem extends FeedbackItem {
 
@@ -33,5 +28,14 @@ public class FeedbackPlusItem extends FeedbackItem {
         return isConsumed() ?
                 s + ", CONSUMED" :
                 s;
+    }
+
+    @Override
+    public FeedbackPlusItem pairedAccessoryItem() {
+        if (!isAccessory()) {
+            return null;
+        }
+        int a = (number & 0x01) > 0 ? number + 1 : number - 1;
+        return new FeedbackPlusItem(reply, a, data);
     }
 }

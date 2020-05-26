@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
 import java.util.LinkedHashMap;
@@ -22,7 +17,7 @@ import org.slf4j.LoggerFactory;
  * This class adds delays, and in the future maybe mode dependencies on top
  * of the blocking and grouping of CommandQueue.
  * 
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class SchedulingQueue extends CommandQueue {
     /**
@@ -64,7 +59,7 @@ public class SchedulingQueue extends CommandQueue {
         super.add(state, block);
     }
     
-    private synchronized void postMessage(CommandState state) {
+    /* test-private */ synchronized void postMessage(CommandState state) {
         Future<?> f = delayedMessages.remove(state);
         if (delayedMessages != null) {
             LOG.debug("Unblocking after timeout: {} ", state);

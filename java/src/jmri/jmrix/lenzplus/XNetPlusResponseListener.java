@@ -1,33 +1,42 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus;
-
-import jmri.jmrix.lenz.XNetListener;
-import jmri.jmrix.lenz.XNetMessage;
-import jmri.jmrix.lenz.XNetReply;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
-public interface XNetPlusResponseListener extends XNetListener {
-    public void completed(XNetPlusMessage msg, XNetPlusReply reply);
-    
-    public void message(XNetPlusReply reply);
-        
-    public default void message(XNetReply reply) {
-        message(XNetPlusReply.create(reply));
+public interface XNetPlusResponseListener extends XNetPlusListener {
+    /**
+     * Called in case of a completed command.
+     * @param msg the completed command message.
+     * @param reply the last reply that lead to command's completion.
+     */
+    public default void completed(CompletionStatus s) {
+       message(s.getReply()); 
     }
     
-    @Override
-    public default void message(XNetMessage msg) {
+    public default void concurrentLayoutOperation(CompletionStatus s) {
     }
-
+    
+    public default void failed(CompletionStatus s) {
+        XNetPlusMessage msg = s.getCommand();
+        if (s.isTimeout()) {
+            XNetPlusReply.log.warn("Command {} timed out for target {}", 
+                msg.toMonitorString(), this);
+            notifyTimeout(msg);
+        } else {
+            XNetPlusReply reply = s.getReply();
+            XNetPlusReply.log.warn("Command {} failed with message {}, for target {}", 
+                msg.toMonitorString(), reply.toMonitorString(), this);
+            message(reply);
+        }
+    }
+    
+    public default void message(XNetPlusMessage l) {}
+    
+    public default void message(XNetPlusReply l) {}
+    
     @Override
-    public default void notifyTimeout(XNetMessage msg) {
+    public default void notifyTimeout(XNetPlusMessage msg) {
     }
     
 }

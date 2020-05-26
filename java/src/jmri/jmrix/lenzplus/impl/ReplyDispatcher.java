@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.impl;
 
 import jmri.jmrix.lenz.XNetListener;
@@ -12,7 +7,7 @@ import jmri.jmrix.lenzplus.XNetPlusReply;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public interface ReplyDispatcher {
 

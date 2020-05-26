@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
 import java.util.ArrayList;
@@ -62,8 +57,10 @@ import jmri.jmrix.lenzplus.comm.CommandState.Phase;
  * <p>
  * The queue add operation is O(1). The removal may be even O(n): it's not optimized for high-volume
  * data.
+ * <h3>Concurrent policy</h3>
+ * The class should be thread-safe, use from any thread.
  * 
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class CommandQueue {
     /**
@@ -127,8 +124,10 @@ public class CommandQueue {
      * @return false, if the item was not present.
      */
     public synchronized boolean remove(CommandState s) {
-        if (!s.getPhase().passed(Phase.FINISHED)) {
-            throw new IllegalStateException();
+        synchronized (s) {
+            if (!s.getPhase().passed(Phase.FINISHED)) {
+                s.toPhase(Phase.EXPIRED);
+            }
         }
         if (!allQueued.remove(s)) {
             return false;
@@ -142,7 +141,7 @@ public class CommandQueue {
     }
     
     public synchronized boolean removeAll(Collection<CommandState> col) {
-        return col.stream().map(this::remove).allMatch(b -> b);
+        return col.stream().map(this::remove).filter(b -> b).count() > 0;
     }
     
     /**
@@ -289,7 +288,7 @@ public class CommandQueue {
      */
     public synchronized void replay(CommandState state) {
         synchronized (state) {
-            if (!state.getPhase().isActive()) {
+            if (state.getPhase().isFinal()) {
                 return;
             }
             state.toPhase(CommandState.Phase.REPLAYING);

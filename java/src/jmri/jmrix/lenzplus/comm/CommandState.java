@@ -1,12 +1,10 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus.comm;
 
+import java.util.Objects;
 import jmri.jmrix.lenz.XNetMessage;
+import jmri.jmrix.lenzplus.CompletionStatus;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,8 +20,12 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Otherwise it could be directly on a {@link XNetMessage}, as there's 1:1 mapping
  * between CommandState and an outgoing message.
+ * <h3>Concurrent policy</h3>
+ * The only thread-safe method is {@link #toPhase}. If one needs to check-and-set
+ * the phase, the command sequence must synchronize on the {@code CpmmandState} 
+ * instance.
  * 
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com, Copyrigh (c) 2020
  */
 public class CommandState {
     /**
@@ -62,6 +64,11 @@ public class CommandState {
         QUEUED(true, false), 
 
         /**
+         * The message has been rejected
+         */
+        REJECTED(false, false),
+
+        /**
          * The message is being resent.
          */
         REPLAYING(true, false), 
@@ -89,7 +96,12 @@ public class CommandState {
         /**
          * The message has expired with no confirmation.
          */
-        EXPIRED(false, false);
+        EXPIRED(false, false),
+        
+        /**
+         * The message has failed to process.
+         */
+        FAILED(false, false);
 
         public boolean isActive() {
             return active;
@@ -97,6 +109,10 @@ public class CommandState {
 
         public boolean isConfirmed() {
             return confirmed;
+        }
+        
+        public boolean isFinal() {
+            return this == FINISHED || this == EXPIRED || this == FAILED;
         }
 
         private final boolean active;
@@ -128,6 +144,18 @@ public class CommandState {
      * Diagnostics: The time the message was first confirmed.
      */
     private long timeConfirmed;
+    
+    /**
+     * Diagnostics: time the message processing was finally stopped.
+     */
+    private long timeFinished;
+    
+    /**
+     * Time of possible concurrent message.
+     */
+    private long timeConcurrentDetected;
+    
+    private XNetPlusReply concurrentReply;
     
     /**
      * Number of OK messages received.
@@ -164,16 +192,18 @@ public class CommandState {
      */
     private Object commandGroupKey;
     
+    private final CompletionStatus completionStatus;
+    
     public CommandState(XNetPlusMessage command) {
+        this.completionStatus = new CompletionStatus(command);
         this.command = command;
         this.priority = command.getPriority();
     }
-    
-    CommandState(int prio) {
-        this.command = null;
-        this.priority = prio;
-    }
 
+    public CompletionStatus getCompletionStatus() {
+        return completionStatus;
+    }
+    
     public int getPriority() {
         return priority;
     }
@@ -210,6 +240,53 @@ public class CommandState {
         return timeConfirmed;
     }
 
+    public long getTimeFinished() {
+        return timeFinished;
+    }
+    
+    public void markPossiblyConcurrent(XNetPlusReply m) {
+        timeConcurrentDetected = System.currentTimeMillis();
+        concurrentReply = m;
+    }
+
+    public long getTimeConcurrentDetected() {
+        return timeConcurrentDetected;
+    }
+
+    public XNetPlusReply getConcurrentReply() {
+        return concurrentReply;
+    }
+    
+    /**
+     * Returns the time the time the message must be confirmed. This is calculated
+     * as sent time + message timeout. Will return -1 for commands that did not
+     * reach {@link Phase#SENT}.
+     * @return the maximum allowed time, or -1.
+     */
+    public long getConfirmTimeLimit() {
+        if (phase.passed(Phase.SENT)) {
+            return timeSent + command.getTimeout();
+        } else {
+            return -1;
+        }
+    }
+    
+    /**
+     * Marks the message as sent. Discards possible concurrent records
+     * based on the timestamp: a concurrent reply must occur after the
+     * timeLimit to be retained as possibly concurrent.
+     * 
+     * @param timeLimit time limit for possible concurrent replies
+     * @return the same as {@link #toPhase}
+     */
+    synchronized boolean markSent(long timeLimit) {
+        if (timeConcurrentDetected < timeLimit) {
+            timeConcurrentDetected = 0;
+            concurrentReply = null;
+        }
+        return toPhase(Phase.SENT);
+    }
+
     /**
      * Transitions the message to a next phase. 
      * @param toPhase the new phase.
@@ -224,17 +301,14 @@ public class CommandState {
                 toPhase = Phase.FINISHED;
             }
         }
-        if (this.phase != Phase.CREATED &&
-            !this.phase.isActive()) {
+        if (this.phase.isFinal()) {
             return false;
         }
         if (this.phase == toPhase) {
             return false;
         }
         log.debug("Message {} toPhase: {}", this, toPhase);
-        boolean ok;
-        ok = toPhase.passed(Phase.EXPIRED) ||
-             (phase.passed(Phase.SENT) && toPhase.passed(Phase.FINISHED));
+        boolean ok = toPhase == Phase.EXPIRED || toPhase == Phase.FINISHED;
         if (!ok) {
             switch (phase) {
                 case CREATED:
@@ -250,7 +324,7 @@ public class CommandState {
                     ok = toPhase == Phase.BLOCKED || toPhase == Phase.QUEUED;
                     break;
                 case SENT: 
-                    if (toPhase == Phase.REPLAYING) {
+                    if (toPhase == Phase.REJECTED || toPhase == Phase.FAILED) {
                         ok = true;
                         break;
                     }
@@ -269,6 +343,9 @@ public class CommandState {
             case REPLAYING: case QUEUED: this.timeQueued = t; break;
             case SENT:      this.timeSent = t; break;
             case CONFIRMED: this.timeConfirmed = t; break;
+            case EXPIRED:
+            case FAILED:
+            case FINISHED:  this.timeFinished = t; break;
         }
         return phase != Phase.CONFIRMED_AGAIN;
     }
@@ -312,7 +389,7 @@ public class CommandState {
     }
 
     public void setCommandGroupKey(Object commandGroupKey) {
-        if (this.commandGroupKey != null) {
+        if (this.commandGroupKey != null && !Objects.equals(this.commandGroupKey, commandGroupKey)) {
             throw new IllegalArgumentException("group key already set");
         }
         this.commandGroupKey = commandGroupKey;

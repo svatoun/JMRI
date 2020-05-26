@@ -1,9 +1,4 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-package jmri.jmrix.lenzplus.impl;
+package jmri.jmrix.lenzplus.impl.base;
 
 import jmri.jmrix.lenzplus.comm.CommandHandler;
 import jmri.jmrix.lenzplus.comm.CommandState;
@@ -11,6 +6,7 @@ import jmri.jmrix.lenzplus.comm.ReplyOutcome;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import jmri.ProgrammingMode;
 import jmri.Turnout;
 import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
@@ -27,10 +23,11 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeFalse;
 import jmri.jmrix.lenzplus.comm.CommandService;
+import org.openide.util.Lookup;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class AccessoryHandlerTest implements CommandService {
     Map<Integer, Integer> accessoryMap = new HashMap<>();
@@ -64,13 +61,6 @@ public class AccessoryHandlerTest implements CommandService {
     @After
     public void tearDown() {
     }
-
-    @Override
-    public void requestAccessoryStatus(int id) {
-        accessoryRequested = id;
-    }
-    
-    int accessoryRequested = -1;
 
     @Override
     public void expectAccessoryState(int accId, int state) {
@@ -138,7 +128,7 @@ public class AccessoryHandlerTest implements CommandService {
      * Checks that ON command rejects feedback with the other state.
      */
     @Test
-    public void testRejectsOtherState() throws Exception {
+    public void testAcceptssOtherState() throws Exception {
         // thrown message
         XNetPlusReply reply = newXNetPlusReply("42 01 02 44");
         assertTrue(reply.selectTurnoutFeedback(m.getCommandedAccessoryNumber()).isPresent());
@@ -432,7 +422,6 @@ public class AccessoryHandlerTest implements CommandService {
         h.finished(out, c);
         XNetPlusCommAccess.advance(h);
         checkSentCommand();
-        checkAccessoryRequestState();
     }
     
     protected void checkSentCommand() {
@@ -441,10 +430,6 @@ public class AccessoryHandlerTest implements CommandService {
         assertSame(sentCommand, st);
     }
     
-    protected void checkAccessoryRequestState() {
-        assertEquals(-1, accessoryRequested);
-    }
-
     @Test
     public void testFinishedNoRecheck() {
         CommandState c = h.getCommand();
@@ -455,7 +440,6 @@ public class AccessoryHandlerTest implements CommandService {
         h.finished(out, c);
         XNetPlusCommAccess.advance(h);
         checkSentCommand();
-        checkAccessoryRequestState();
     }
     
     @Test
@@ -467,6 +451,21 @@ public class AccessoryHandlerTest implements CommandService {
         XNetPlusReply fb = newXNetPlusReply("42 01 02 44");
         
         assertTrue(h.checkConcurrentAction(s, fb));
-        assertEquals(5, accessoryRequested);
+        h.handleConcurrentMessage(fb);
+        assertNotNull(h.getInitialCommand().getCompletionStatus().getConcurrentReply());
+    }
+
+    @Override
+    public ProgrammingMode getMode() {
+        return null;
+    }
+
+    @Override
+    public void modeEntered(ProgrammingMode m) {
+    }
+
+    @Override
+    public Lookup getLookup() {
+        return Lookup.EMPTY;
     }
 }

@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package jmri.jmrix.lenzplus;
 
 import jmri.jmrix.lenzplus.comm.ReplyOutcome;
@@ -28,12 +23,13 @@ import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetPacketizer;
 import jmri.jmrix.lenzplus.comm.TrafficController;
 import jmri.util.ThreadingUtil;
+import org.openide.util.Lookup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  *
- * @author sdedic
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public class XNetPlusTrafficController extends XNetPacketizer 
         implements XNetProtocol, ReplyDispatcher {
@@ -58,19 +54,34 @@ public class XNetPlusTrafficController extends XNetPacketizer
      */
     private volatile XNetPlusMessage lastSentMessage;
     
+    private volatile Lookup connectionMemoLookup;
+    
     public XNetPlusTrafficController(LenzCommandStation pCommandStation) {
         super(pCommandStation);
         cmdController = new QueueController(new TrafficController() {
             @Override
-            public <T> T lookup(Class<T> service) {
-                return getSystemConnectionMemo().get(service);
-            }
-
-            @Override
-            public void sendMessageToDevice(XNetPlusMessage msg, XNetListener l) {
-                doSendMessage(msg, l);
+            public Lookup getLookup() {
+                return createMemoLookup();
             }
         });
+    }
+    
+    /**
+     * Lazy-creates the SystemConnectionMemo lookup. The connection memo is not
+     * available during ctor execution, so Lookup will be created when it is first
+     * accessed.
+     */
+    private Lookup createMemoLookup() {
+        Lookup l = connectionMemoLookup;
+        if (l != null) {
+            return l;
+        }
+        synchronized (this) {
+            if (connectionMemoLookup == null) {
+                connectionMemoLookup = new ConnectionMemoLookupAdapter(getSystemConnectionMemo());
+            }
+            return connectionMemoLookup;
+        }
     }
 
     public XNetPacketizerDelegate getPacketizer() {
