@@ -277,6 +277,10 @@ public class XNetTurnout extends AbstractTurnout implements XNetListener {
         queueMessage(msg,IDLE,null); //status is returned via the manager.
 
     }
+    
+    protected void superRequestUpdateFromLayout() {
+        super.requestUpdateFromLayout();
+    }
 
     @Override
     public synchronized void setInverted(boolean inverted) {
