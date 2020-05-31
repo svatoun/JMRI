@@ -13,6 +13,8 @@ import jmri.jmrix.SystemConnectionMemo;
 import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
 import jmri.jmrix.lenz.xnetsimulator.XNetSimulatorAdapter;
 import jmri.jmrix.lenzplus.XNetAdapter;
+import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 import jmri.util.NamedBeanComparator;
 import jmri.util.ThreadingUtil;
 import org.slf4j.Logger;
@@ -170,8 +172,12 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
         incomingReplies.clear();
     }
     
-    private void insertAdditionalReplies() {
-        replyBuffer.addAll(additionalReplies);
+    private void insertAdditionalReplies(XNetPlusMessage m) {
+        for (XNetReply r : additionalReplies) {
+            XNetPlusReply r2 = plusReply(r);
+            r2.setResponseTo(m);
+            replyBuffer.add(r2);
+        }
         additionalReplies.clear();
     }
 
@@ -224,13 +230,24 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     }
 
     @Override
-    protected XNetReply generateAdditionalReply() {
-        insertAdditionalReplies();
+    protected XNetReply generateAdditionalReply(XNetMessage m) {
+        insertAdditionalReplies(XNetPlusMessage.create(m));
         if (replyBuffer.isEmpty()) {
             return null;
         }
         XNetReply r = replyBuffer.remove(0);
         return captureReply(r);
+    }
+    
+    private static XNetPlusReply plusReply(XNetReply r) {
+        XNetPlusReply rr = XNetPlusReply.create(r);
+        if (r == rr) {
+            return rr;
+        }
+        if (r.isUnsolicited()) {
+            rr.setUnsolicited();
+        }
+        return rr;
     }
     
     /**
@@ -242,21 +259,24 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      */
     @Override
     protected XNetReply generateReply(XNetMessage m) {
-        insertAdditionalReplies();
+        XNetPlusMessage m2 = XNetPlusMessage.create(m);
+        insertAdditionalReplies(m2);
         if (m.getElement(0) == 0x01 && m.getElement(1) == 0x00) {
             // bypass reply buffer.
             return new XNetReply("01 04 05");
         }
-        XNetReply reply = super.generateReply(m);
+        XNetPlusReply r2 = plusReply(super.generateReply(m2));
+        XNetReply reply = r2;
+        r2.setResponseTo(m2);
         if (isPrimaryReply(m)) {
             reply = new PrimaryXNetReply(reply);
         }
         if (replyBuffer.isEmpty()) {
-            insertAdditionalReplies();
+            insertAdditionalReplies(m2);
             return captureReply(reply);
         }
         replyBuffer.add(reply);
-        insertAdditionalReplies();
+        insertAdditionalReplies(m2);
         XNetReply r = replyBuffer.remove(0);
         return captureReply(r);
     }
@@ -509,7 +529,6 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
                     accessoryOperated.set(address);
                     r = accInfoReply(address);
                     r.setUnsolicited();
-                    addReply(okReply());
                 }
             } else {
                 accessoryOperated.set(address);
@@ -545,5 +564,25 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
             return super.lengthOfByteStream(reply) + 2;
         }
         
+        @Override
+        protected XNetReply generateAccRequestReply(int address, int output, boolean state) {
+            XNetReply r;
+            
+            if (state) {
+                if (accessoryOperated.get(address) && previousAccessoryState == (output != 0)) {
+                    // just OK, the accessory is in the same state.
+                    return okReply();
+                } else {
+                    accessoryOperated.set(address);
+                    r = accInfoReply(address);
+                    r.setUnsolicited();
+                    addReply(okReply());
+                }
+            } else {
+                accessoryOperated.set(address);
+                r = okReply();
+            }
+            return r;
+        }
     }
 }

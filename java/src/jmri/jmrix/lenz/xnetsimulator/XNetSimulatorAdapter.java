@@ -179,7 +179,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
      * is available, the method should return {@code null}.
      * @return Additional reply packet or {@code null}.
      */
-    protected XNetReply generateAdditionalReply() {
+    protected XNetReply generateAdditionalReply(XNetMessage m) {
         return null;
     }
 
@@ -204,7 +204,7 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
             }
             XNetReply r = generateReply(m);
             writeReply(r);
-            while ((r = generateAdditionalReply()) != null) {
+            while ((r = generateAdditionalReply(m)) != null) {
                 writeReply(r);
             }
             log.debug("Simulator Thread sent Reply {}", r);
