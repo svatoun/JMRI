@@ -271,6 +271,10 @@ public abstract class AbstractMRTrafficController {
      */
     @SuppressWarnings("unchecked")
     protected void notifyReply(AbstractMRReply r, AbstractMRListener dest) {
+        notifyReply(r, dest, dest);
+    }
+    
+    protected void notifyReply(AbstractMRReply r, AbstractMRListener dest, AbstractMRListener exclude) {
         // make a copy of the listener vector to synchronized (not needed for transmit?)
         Vector<AbstractMRListener> v;
         synchronized (this) {
@@ -281,10 +285,10 @@ public abstract class AbstractMRTrafficController {
         int cnt = v.size();
         for (int i = 0; i < cnt; i++) {
             AbstractMRListener client = v.elementAt(i);
-            log.debug("notify client: {}", client);
             try {
                 //skip dest for now, we'll send the message to there last.
-                if (dest != client) {
+                if (exclude != client) {
+                    log.debug("notify client: {}", client);
                     forwardReply(client, r);
                 }
             } catch (RuntimeException e) {
@@ -296,6 +300,7 @@ public abstract class AbstractMRTrafficController {
         // this is done _second_ so monitoring can have already stored the reply
         // before a response is sent
         if (dest != null) {
+            log.debug("notify target: {}", dest);
             forwardReply(dest, r);
         }
     }
@@ -377,7 +382,7 @@ public abstract class AbstractMRTrafficController {
                 msgQueue.removeFirst();
                 ll[0] = listenerQueue.getFirst();
                 listenerQueue.removeFirst();
-                mCurrentState = WAITMSGREPLYSTATE;
+                    mCurrentState = WAITMSGREPLYSTATE;
                 log.debug("transmit loop has something to do: {}", m);
             }  // release lock here to proceed in parallel
         }
@@ -553,6 +558,9 @@ public abstract class AbstractMRTrafficController {
         // so we protect by making sure the entire timeout time is used
         long currentTime = Calendar.getInstance().getTimeInMillis();
         long endTime = currentTime + waitTime;
+        synchronized (this) {
+            log.debug("TransmitWait state: {}", mCurrentState);
+        }
         while (endTime > (currentTime = Calendar.getInstance().getTimeInMillis())) {
             long wait = endTime - currentTime;
             try {
@@ -563,6 +571,7 @@ public abstract class AbstractMRTrafficController {
                         // just to cover some error cases, should be reset by the
                         // receive thread already, but in no case can remain populated
                         currentTransmission = null;
+                        log.debug("TransmitWait END, state: {}", mCurrentState);
                         return;
                     }
                     xmtRunnable.wait(wait); // rcvr normally ends this w state change
@@ -1318,7 +1327,7 @@ public abstract class AbstractMRTrafficController {
      * threads or automatons to be linked to the layout reply: the value
      * is only valid for the execution of reply processing.
      */
-    static ThreadLocal<AbstractMRReply> currentReply = new ThreadLocal<>();
+    protected static ThreadLocal<AbstractMRReply> currentReply = new ThreadLocal<>();
 
     /**
      * Internal class to remember the Reply object and destination listener with
