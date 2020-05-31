@@ -30,7 +30,9 @@ final class ConnectionMemoLookupAdapter extends AbstractLookup {
     @Override
     protected void beforeLookup(Template<?> template) {
         Class<?> serviceClass = template.getType();
-        if (!classes.add(serviceClass)) {
+        // memo can be never null, except tests. But since XNetConnectionMemo registers itself
+        // in constructor, it is hard to use in unit tests.
+        if (!classes.add(serviceClass) || memo == null) {
             return;
         }
         if (!memo.provides(serviceClass)) {

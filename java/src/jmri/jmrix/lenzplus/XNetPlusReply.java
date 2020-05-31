@@ -5,9 +5,11 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import jmri.jmrix.AbstractMRReply;
+import jmri.jmrix.lenz.FeedbackItem;
 import jmri.jmrix.lenz.XNetMessage;
 import jmri.jmrix.lenz.XNetReply;
 import org.slf4j.Logger;
@@ -49,10 +51,6 @@ public class XNetPlusReply extends XNetReply {
     private int consumed;
     
     private XNetPlusMessage responseTo;
-    
-    private boolean softUnsolicited = true;
-    
-    private boolean ignoreSuper = false;
     
     private boolean broadcast;
 
@@ -273,6 +271,11 @@ public class XNetPlusReply extends XNetReply {
     public boolean isBroadcast() {
         return broadcast;
     }
+    
+    public void setBroadcast() {
+        this.broadcast = true;
+        super.setUnsolicited();
+    }
 
     /**
      * Resets feedback's unsolicited state, when it is recognized
@@ -280,7 +283,9 @@ public class XNetPlusReply extends XNetReply {
      */
     @Override
     public void resetUnsolicited() {
-        solicitedStatus = false;
+        /// XXX: proc jsem vubec tohle provedl ?
+        solicitedStatus = null;
+        super.resetUnsolicited();
     }
     
     @Override
@@ -326,7 +331,7 @@ public class XNetPlusReply extends XNetReply {
                         Spliterator.ORDERED | Spliterator.SUBSIZED);
         return StreamSupport.stream(spl, false);
     }
-
+    
     public boolean feedbackMatchesAccesoryCommand(XNetPlusMessage command) {
         int turnoutId = command.getCommandedAccessoryNumber();
         if (turnoutId == -1) {

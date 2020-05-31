@@ -8,9 +8,11 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.concurrent.GuardedBy;
@@ -267,9 +269,37 @@ public class QueueController implements CommandService {
         return commandQueue.getFutureCommand(s);
     }
     
+    List<CommandInterceptor> processors() {
+        return new ArrayList(services.lookupAll(CommandInterceptor.class));
+    }
+    
     public XNetPlusMessage pollMessage() {
-        CommandState s = commandQueue.poll();
-        return s == null ? null : s.getMessage();
+        CommandState s = null;
+        do {
+            s = commandQueue.poll();
+            if (s == null) {
+                return null;
+            }
+            AtomicReference<Phase> result = new AtomicReference<>();
+            W: for (CommandInterceptor i : processors()) {
+                Phase p = i.interceptCommand(this, s);
+                if (p == null) {
+                    continue;
+                }
+                switch (p) {
+                    case QUEUED:
+                    case BLOCKED:
+                        commandQueue.add(s, p == Phase.BLOCKED);
+                        s = null;
+                        break W;
+                    case EXPIRED:
+                    default:
+                        LOG.warn("Interceptor {} provided invalid deecision {}; ignored:", i, p);
+                        break;
+                }
+            }
+        } while (s == null);
+        return s.getMessage();
     }
     
     /**
@@ -279,7 +309,7 @@ public class QueueController implements CommandService {
      * <p>
      * This method is intended to be called from the Traffic Controller, can be called
      * from an arbitrary thread.
-     * @param msg the preprocess to sent.
+     * @param msg the intercept to sent.
      */
     public boolean send(XNetPlusMessage msg, XNetListener callback) {
         CommandState s = send(null, msg, callback);
@@ -339,6 +369,19 @@ public class QueueController implements CommandService {
         return state;
     }
     
+    public XNetListener getResponseTarget(XNetPlusMessage m) {
+        XNetListener r = m.getReplyTarget();
+        if (r != null) {
+            return r;
+        }
+        CommandState s = state(m);
+        if (s == null) {
+            return null;
+        } else {
+            return s.getHandler().getTarget();
+        }
+    }
+    
     synchronized Collection<? extends MessageHandlerFactory> getHandlerFactories() {
         // cache factories, they could eventually keep the shared state for 
         // handlers.
@@ -358,10 +401,25 @@ public class QueueController implements CommandService {
     }
     
     protected List<ReplyHandler> forReply(CommandState s, XNetPlusReply reply) {
-        return getHandlerFactories().stream().sequential().
-                map(f -> f.createReplyHandler(this, s, reply)).
-                filter(Objects::nonNull).
-                collect(Collectors.toList());
+        List<ReplyHandler> handlers = new ArrayList<>();
+        List<CommandState> tx = getTransmittedMessages();
+        for (MessageHandlerFactory f : getHandlerFactories()) {
+            ReplyHandler rh = f.createReplyHandler(this, s, reply);
+            if (rh != null) {
+                handlers.add(rh);
+            }
+        }
+        for (ListIterator<CommandState> it = tx.listIterator(tx.size()); it.hasPrevious(); ) {
+            CommandState c = it.previous();
+            if (c == s) {
+                break;
+            }
+            CommandHandler ch = c.getHandler();
+            if (ch instanceof ReplyHandler) {
+                handlers.add((ReplyHandler)ch);
+            }
+        }
+        return handlers;
     }
     
     /**
@@ -411,10 +469,27 @@ public class QueueController implements CommandService {
     }
     
     /**
-     * Preprocesses a reply.
-     * @param r 
+     * Preprocesses a reply, making Handler selection. First, all {@link ReplyHandlers}
+     * are asked to {@link ReplyHandler#intercept the reply}. A Handler may choose to terminate
+     * the processing, or attach the reply to another command (typically to itself). If the reply is a
+     * protocol error, the the selected command becomes {@link #REJECTED} or {@link #FAILED}.
+     * <p>
+     * Next the selected command's handler {@link CommandHandler#acceptsReply is asked} for final
+     * confirmation it handles the reply. If it rejects, the reply is processed as unsolicited. The command
+     * command then transitions to {@link Phase#CONFIRMED}; if it is for the <b>first time</b>, {@link CommandHandler#sent}
+     * is called to record command's operations.
+     * <p>
+     * Unsolicited replies are processed using {@link ReplyHandler#process}.
+     * <p>
+     * Either Interceptors, or ReplyHandler process phase will determine the {@link ReplyOutcome}, possibly
+     * leaving {@code null}.
+     * 
+     * @param r the received reply to process
+     * @param replyHandlers collected reply handlers, in the processing order
+     * @param s the command initially assigned to the reply
+     * @return processing outcome, or {@code null}, if undecided yet.
      */
-    public ReplyOutcome preprocess(List<ReplyHandler> replyHandlers, CommandState s, XNetPlusReply r) {
+    ReplyOutcome preprocess(List<ReplyHandler> replyHandlers, CommandState s, XNetPlusReply r) {
         LOG.debug("Received reply: {} for {}", r, s);
         assureLayoutThread();
         expireTransmittedMessages();
@@ -429,7 +504,12 @@ public class QueueController implements CommandService {
         }
         for (ReplyHandler rh : replyHandlers) {
             LOG.debug("Passing to handler {}", rh);
-            ReplyOutcome o = rh.preprocess(s, r);
+            ReplyOutcome o = rh.intercept(s, r);
+            if (r.getResponseTo() != cmd) {
+                LOG.debug("Handler reassigned reply to: {}", r.getResponseTo());
+                cmd = r.getResponseTo();
+                s = state(cmd);
+            }
             if (o != null) {
                 if (o.isMessageFinished()) {
                     LOG.debug("Handler terminated the reply: {}", o);
@@ -444,40 +524,43 @@ public class QueueController implements CommandService {
         if (dropExpiredReply) {
             return ReplyOutcome.finished(r);
         }
-        cmd = r.getResponseTo();
+        
+        if (r.isRetransmittableErrorMsg()) {
+            LOG.debug("Got retransmittable error for {}, failing", s);
+            if (s != null) {
+                s.getCompletionStatus().addReply(r);
+                rejected(s);
+            }
+            return ReplyOutcome.finished(s, r).reject();
+        }
+
+        // uniform handling: intercept is rejected, but that means its confirmed,
+        // and no further confirmation can come
+        if (r.isUnsupportedError()) {
+            LOG.debug("Got UNSUPPORTED error for {}, failing", s);
+            if (s != null) {
+                s.getCompletionStatus().addReply(r);
+                terminate(s.getHandler(), Phase.FAILED);
+            }
+            return ReplyOutcome.finished(s, r).fail();
+        }
+        
         CommandHandler h = null;
         if (cmd != null) {
             h = s.getHandler();
-            s.getCompletionStatus().addReply(r);
-            if (r.isRetransmittableErrorMsg()) {
-                LOG.debug("Got retransmittable error for {}, failing", s);
-                rejected(s);
-                return ReplyOutcome.finished(s, r).reject();
-            }
-
-            // uniform handling: preprocess is rejected, but that means its confirmed,
-            // and no further confirmation can come
-            if (r.isUnsupportedError()) {
-                LOG.debug("Got UNSUPPORTED error for {}, failing", s);
-                terminate(s.getHandler(), Phase.FAILED);
-                return ReplyOutcome.finished(s, r).fail();
-            }
-            LOG.debug("Trying to accept by {}", h);
+            LOG.debug("Asking handler {} to accept {}", h, r);
             if (h.acceptsReply(cmd, r)) {
-                processAttachedMessage(h, s, r);
+                r.markSolicited(true);
+                s.getCompletionStatus().addReply(r);
+                boolean changed = s.toPhase(Phase.CONFIRMED);
+                if (s.getPhase() == Phase.CONFIRMED) {
+                    h.sent(s);
+                }
                 return null;
             }
         }
         
         return processUnsolicited(replyHandlers, s, r);
-    }
-    
-    private void processAttachedMessage(CommandHandler cmd, CommandState ms, XNetPlusReply r) {
-        boolean changed = ms.toPhase(Phase.CONFIRMED);
-        LOG.debug("Confirmed: {}, state change: {}, handler: {}", ms, changed, cmd);
-        if (ms.getPhase() == Phase.CONFIRMED) {
-            cmd.sent(ms);
-        }
     }
     
     ReplyOutcome processUnsolicited(List<ReplyHandler> replyHandlers, CommandState s, XNetPlusReply r) {
@@ -515,7 +598,7 @@ public class QueueController implements CommandService {
         LOG.debug("Notify concurrent op {} for command {} to {}", r, s, l);
         if (l instanceof XNetPlusResponseListener) {
             try {
-                ((XNetPlusResponseListener)l).concurrentLayoutOperation(cs);
+                ((XNetPlusResponseListener)l).concurrentLayoutOperation(cs, r);
             } catch (Exception ex) {
                 LOG.error("Exception occurred during concurrent even delivery", ex);
             }
@@ -571,6 +654,24 @@ public class QueueController implements CommandService {
         }
     }
     
+    /**
+     * Main entry point to process a reply. First, the reply is {@link ReplyHandler#intercept}ed and 
+     * attachment of reply to {@link XNetPlusMessage} is verified. Next, the target {@link CommandHandler#process}
+     * is called.
+     * <p>
+     * Both <b>attached</b> and <b>unsolicited</b> messages are then filtered through transmitted commands
+     * and queued commands to eliminate known effects. The filtered message instance is then likely to be processed
+     * by the {@link callback}. Finally, the command's callback itself will be called with <b>unfiltered</b>
+     * message to handle it.
+     * <p>
+     * The entire method is exception-protected; if any exception (not Error) occurs, it is logged in the
+     * {@link ReplyOutcome}. This way the main receive loop should be safe from errors introduced by plugged-in
+     * code.
+     * 
+     * @param reply the reply to process
+     * @param callback supposed to distribute the reply instance through JMRI
+     * @return outcome for processing.
+     */
     public ReplyOutcome processReply2(XNetPlusReply reply, Runnable callback) {
         ReplyOutcome out = null;
         try {
@@ -578,7 +679,13 @@ public class QueueController implements CommandService {
             CommandState cs = state(msg);
             List<ReplyHandler> rhs = forReply(cs, reply);
             ReplyOutcome out2 = preprocess(rhs, cs, reply);
+            
+            // re-read message assignment:
+            msg = reply.getResponseTo();
+            cs = state(msg);
+            
             boolean shouldCallTarget = false;
+            boolean simpleListener = false;
             CommandHandler h = null;
             
             if (out2 != null) {
@@ -587,6 +694,7 @@ public class QueueController implements CommandService {
                 h = cs.getHandler();
                 processedReplyAction = h;
                 LOG.debug("Calling CommandHandler.processed {}", h);
+                
                 out = h.processed(cs, reply);
                 cs.getCompletionStatus().addReply(out.getTargetReply());
                 
@@ -609,11 +717,8 @@ public class QueueController implements CommandService {
                 shouldCallTarget = 
                         (out.isComplete() || !out.isAdditionalReplyRequired()) &&
                         (cs != h.getInitialCommand());
-                if (h.getConcurrentReply() != null && 
-                    (h.getTimeSent() - h.getTimeConcurrentDetected()) < concurrentTimeAfter) {
-                    LOG.debug("Concurrent reply detected");
-                    h.handleConcurrentMessage(h.getConcurrentReply());
-                }
+                // compat boost:
+                simpleListener = false; // isSimpleTarget(out, cs);
             }
             try {
                 // dangerous, calls out to random listeners in JMRI code
@@ -640,6 +745,47 @@ public class QueueController implements CommandService {
         return out;
     }
     
+    boolean isSimpleTarget(ReplyOutcome outcome, CommandState cs) {
+        boolean[] ignore = new boolean[1];
+        XNetListener l = getReplyTarget(outcome, cs.getHandler(), cs.getMessage(), ignore);
+        return l != null && !(l instanceof XNetPlusResponseListener);
+    }
+    
+    XNetListener getReplyTarget(ReplyOutcome outcome, CommandHandler h, XNetPlusMessage msg, boolean[] finishOut) {
+        XNetListener l = null;
+        if (msg != null) {
+            l = msg.getReplyTarget();
+        }
+        if (l == null) {
+            l = h.getTarget();
+            finishOut[0] = h.getPhase().passed(Phase.FINISHED);
+        } else {
+            finishOut[0] = false;
+        }
+        return l;
+    }
+    
+    /**
+     * Notifies the message target. Possibly sends directed notification to the target.
+     * Simple listeners get each messages that has been processed. 
+     * <p>
+     * 
+     * @param outcome
+     * @param h
+     * @param m the message. {@code null} indicates entire command has completed.
+     */
+    void notifyTarget2(ReplyOutcome outcome, CommandHandler h, XNetPlusMessage m) {
+        
+    }
+    
+    /**
+     * Sends out target notification. Behaves differently for standard
+     * {@link XNetListener} targets, and {@link XNetPlusResponseListener} ones.
+     * Protects the processing loop from errors, records all Exceptions into {@link ReplyOutcome}.
+     * @param h handler to invoke
+     * @param msg attached message
+     * @param outcome the computed outcome
+     */
     /**
      * Sends out target notification.
      * @param h
@@ -720,6 +866,35 @@ public class QueueController implements CommandService {
         }
     }
     
+    
+    /*
+    void sendNotification(ReplyOutcome outcome, XNetListener l, Phase cp) {
+        XNetPlusReply reply = outcome.getTargetReply();
+        LOG.debug("Notify reply {} for command {} to {}", reply, outcome.getState(), l);
+        if (l == null) {
+            return;
+        }
+        try {
+            if (l instanceof XNetPlusResponseListener) {
+                XNetPlusResponseListener xnprl = (XNetPlusResponseListener)l;
+                LOG.debug("Notifying PLUS target: {}", l);
+                switch (cp) {
+                    case REJECTED: return;
+                    case FINISHED: xnprl.completed(cs); return;
+                    case FAILED: xnprl.failed(cs); return;
+                    default: // fall through
+                }
+                // notify at least the normal method.
+            }
+            LOG.debug("Notifying XNet target: {}", l);
+            l.message(reply);
+        } catch (Exception ex) {
+            LOG.error("Error during XNet target notification", ex);
+            outcome.withError(ex);
+        }
+    }
+    */
+    
     /**
      * Terminates / discards transmitted messages that were
      * long in the watched queue. Ensures eventual cleanup of
@@ -799,7 +974,7 @@ public class QueueController implements CommandService {
             });
         }
         ac.toPhase(newPhase);
-        LOG.debug("Removing messages: {}", messages);
+        LOG.debug("Cleaning terminated: {}", messages);
         commandQueue.removeAll(messages);
         synchronized (this) {
             if (lastSent == ac.getCommand()) {
@@ -825,5 +1000,9 @@ public class QueueController implements CommandService {
 
     public int getConcurrentActions() {
         return concurrentActions;
+    }
+    
+    public CommandQueue getCommandQueue() {
+        return commandQueue;
     }
 }

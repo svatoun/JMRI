@@ -291,7 +291,6 @@ s         */
 
         Turnout t = initOnLayout(() -> {
             Turnout x = xnetManager.provideTurnout("XT5");
-            lnis.sendXNetMessage(new XNetMessage("00 00 00"), null);
             return x;
         });
         
@@ -401,15 +400,15 @@ s         */
             // block property changes for a while
             synchronized (t) {
                 t.setCommandedState(XNetTurnout.THROWN);
-                XNetMessage msg = new XNetMessage("21 24 05");
+                XNetPlusMessage msg = new XNetPlusMessage("21 24 05");
                 lnis.sendXNetMessage(msg, null);
                 marker.set(msg);
             }
         });
+Thread.sleep(500000);
         assertTrue(l.await(300, TimeUnit.MILLISECONDS));
-
         // the turnout must be already IDLE
-        assertEquals(XNetPlusTurnout.IDLE, ((XNetPlusTurnout)t).internalState);
+        assertEquals(XNetPlusTurnout.IDLE, XNetAccess.getInternalState((XNetTurnout)t));
         
         // sleep for some more time, to get the final reply:
         

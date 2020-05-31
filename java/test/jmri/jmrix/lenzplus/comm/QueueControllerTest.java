@@ -16,6 +16,7 @@ import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.XNetPlusReply;
 import jmri.jmrix.lenzplus.XNetPlusResponseListener;
 import jmri.jmrix.lenzplus.comm.CommandState.Phase;
+import org.assertj.core.api.Assertions;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -42,18 +43,30 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         return Lookup.EMPTY;
     }
     
+    private ReplyOutcome noException(ReplyOutcome o) throws Exception {
+        if (o == null) {
+            return null;
+        }
+        Throwable e = o.getException();
+        if (e instanceof Exception) {
+            throw (Exception)e;
+        } else if (e != null) {
+            Assertions.fail("Unexpected error", e);
+        }
+        return o;
+    }
 
-    private ReplyOutcome preprocess(XNetPlusReply r) {
+    private ReplyOutcome preprocess(XNetPlusReply r) throws Exception {
         XNetPlusMessage m = r.getResponseTo();
         CommandState s = controller.state(m);
-        return controller.preprocess(Collections.emptyList(), s, r);
+        return noException(controller.preprocess(Collections.emptyList(), s, r));
     }
 
     /**
      * Checks that originally unsolicited message is processed correctly
      */
     @Test
-    public void testPreprocessUnsolicitedMessage() {
+    public void testPreprocessUnsolicitedMessage() throws Exception {
         XNetPlusReply reply = XNetPlusAccess.createReply("42 01 01 44");
         ReplyOutcome o = preprocess(reply);
         assertNotNull(o);
@@ -64,7 +77,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * Checks that data in an unsolicited message will be filtered during preprocess.
      */
     @Test
-    public void testFilterUnsolicitedMessage() {
+    public void testFilterUnsolicitedMessage() throws Exception {
         XNetPlusMessage futureMsg = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(5, true, false, true)
         );
@@ -80,12 +93,16 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         // check the filtering: 
         assertFalse(reply.selectTurnoutFeedback(5).isPresent());
     }
+    
+    private ReplyOutcome processReplyNoException(XNetPlusReply reply, Runnable callback) throws Exception {
+        return noException(controller.processReply2(reply, callback));
+    }
 
     /**
      * Checks that data in an unsolicited message will be filtered during preprocess.
      */
     @Test
-    public void testPreprocessConcurrentMessage() {
+    public void testPreprocessConcurrentMessage() throws Exception {
         XNetPlusMessage jmriMsg = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(5, true, false, true)
         );
@@ -98,7 +115,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         controller.pollMessage();
         controller.message(jmriMsg);
         preprocess(okReply);
-        ReplyOutcome o = controller.processReply2(okReply, null);
+        ReplyOutcome o = processReplyNoException(okReply, () -> {});
         controller.replyFinished(o);
         
         XNetPlusReply reply = XNetPlusAccess.createReply("42 01 01 44");
@@ -115,7 +132,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * unsolicited.
      */
     @Test
-    public void testPreprocessRejectedByHandler() {
+    public void testPreprocessRejectedByHandler() throws Exception {
         XNetPlusMessage jmriMsg = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(7, true, false, true)
         );
@@ -141,7 +158,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * will produce a completed, but unfinished outcome.
      */
     @Test
-    public void testPreprocessRetransmittableError() {
+    public void testPreprocessRetransmittableError() throws Exception {
         XNetPlusMessage jmriMsg = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(7, true, false, true)
         );
@@ -166,7 +183,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * Checks that an unsupported error will complete the command immediately.
      */
     @Test
-    public void testPreprocessUnsupportedError() {
+    public void testPreprocessUnsupportedError() throws Exception {
         XNetPlusMessage jmriMsg = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(7, true, false, true)
         );
@@ -191,7 +208,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * Checks a basic request - reply through the Default (generic) CommandHandler.
      */
     @Test
-    public void testBasicStationStartup() {
+    public void testBasicStationStartup() throws Exception {
         XNetPlusMessage msg = XNetPlusMessage.create(XNetMessage.getCSVersionRequestMessage());
 
         controller.send(msg, null);
@@ -207,7 +224,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         XNetPlusReply reply = XNetPlusAccess.createReply("63 21 36 00 74");
         reply.setResponseTo(msg);
         
-        ReplyOutcome oc = controller.processReply2(reply, () -> {});
+        ReplyOutcome oc = processReplyNoException(reply, () -> {});
         controller.replyFinished(oc);
         
         CommandState st = controller.state(msg);
@@ -223,7 +240,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         reply = XNetPlusAccess.createReply("62 22 06 46");
         reply.setResponseTo(msg);
 
-        oc = controller.processReply2(reply, () -> {});
+        oc = processReplyNoException(reply, () -> {});
         controller.replyFinished(oc);
 
         st = controller.state(msg);
@@ -258,7 +275,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         XNetPlusReply reply = XNetPlusAccess.createReply("63 21 36 00 74");
         reply.setResponseTo(msg);
         
-        ReplyOutcome oc = controller.processReply2(reply, () -> {});
+        ReplyOutcome oc = processReplyNoException(reply, () -> {});
         controller.replyFinished(oc);
         
         // still remains in the transmit queue
@@ -269,7 +286,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         controller.disableExpiration = false;
         // receive some message to expunge obsolete messages from the queue
         reply = XNetPlusAccess.createReply("42 01 01 44");
-        controller.processReply2(reply, () -> {});
+        processReplyNoException(reply, () -> {});
         
         assertTrue(controller.getTransmittedMessages().isEmpty());
         // but is not expired:
@@ -300,7 +317,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         
         XNetPlusReply reply = XNetPlusAccess.createReply("01 04 05");
         reply.setResponseTo(start);
-        ReplyOutcome o = controller.processReply2(reply, () -> {});
+        ReplyOutcome o = processReplyNoException(reply, () -> {});
         
         assertNull(targetReply);
         
@@ -321,7 +338,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         reply = XNetPlusAccess.createReply("01 04 05");
         reply.setResponseTo(off);
         
-        o = controller.processReply2(reply, () -> {});
+        o = processReplyNoException(reply, () -> {});
         
         assertTrue(o.isComplete());
         assertFalse(o.isAdditionalReplyRequired());
@@ -351,7 +368,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
 
         XNetPlusReply reply = XNetPlusAccess.createReply("63 21 36 00 74");
         reply.setResponseTo(query);
-        ReplyOutcome o = controller.processReply2(reply, () -> {});
+        ReplyOutcome o = processReplyNoException(reply, () -> {});
         assertTrue(o.isComplete());
         assertNull(targetReply);
         controller.replyFinished(o);
@@ -386,7 +403,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         // pretent that a reject came:
         XNetPlusReply reject = XNetPlusAccess.createReply("61 81 e0");
         reject.setResponseTo(start);
-        ReplyOutcome o = controller.processReply2(reject, () -> {});
+        ReplyOutcome o = processReplyNoException(reject, () -> {});
 
         // the processing should finish, but the message is not even confirmed:
         assertTrue(o.isComplete());
@@ -408,7 +425,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         
         XNetPlusReply reply = XNetPlusAccess.createReply("01 04 05");
         reply.setResponseTo(start);
-        o = controller.processReply2(reply, () -> {});
+        o = processReplyNoException(reply, () -> {});
         
         assertNull(targetReply);
         
@@ -430,7 +447,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         reply = XNetPlusAccess.createReply("01 04 05");
         reply.setResponseTo(off);
         
-        o = controller.processReply2(reply, () -> {});
+        o = processReplyNoException(reply, () -> {});
         
         assertTrue(o.isComplete());
         assertFalse(o.isAdditionalReplyRequired());
@@ -590,7 +607,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         controller.send(jmriMsg, l);
         controller.pollMessage();
         controller.message(jmriMsg);
-        ReplyOutcome out = controller.processReply2(reply, () -> {});
+        ReplyOutcome out = processReplyNoException(reply, () -> {});
         controller.replyFinished(out);
         
         CommandState st = controller.state(jmriMsg);
@@ -603,7 +620,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
             if (m == null) {
                 if (insertExtra) {
                     XNetPlusReply extraReply = XNetPlusAccess.createReply("42 01 01 44");
-                    ReplyOutcome extraOut = controller.processReply2(extraReply, () -> {});
+                    ReplyOutcome extraOut = processReplyNoException(extraReply, () -> {});
                     controller.replyFinished(extraOut);
                 }
                 Thread.sleep(100);
@@ -613,7 +630,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
                 return out;
             }
             controller.message(m);
-            out = controller.processReply2(reply, () -> {});
+            out = processReplyNoException(reply, () -> {});
             controller.replyFinished(out);
         }
         return out;
@@ -695,9 +712,9 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * controller should serve the proper accessory state.
      */
     @Test
-    public void testUnsolicitedFeedbacksMonitored() {
+    public void testUnsolicitedFeedbacksMonitored() throws Exception {
         XNetPlusReply reply = XNetPlusAccess.createReply("42 01 01 44");
-        ReplyOutcome outcome = controller.processReply2(reply, () -> {});
+        ReplyOutcome outcome = processReplyNoException(reply, () -> {});
         assertTrue(outcome.isMessageFinished());
         
         assertNotEquals(Turnout.UNKNOWN, controller.getAccessoryState(5));
@@ -709,7 +726,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
      * controller should serve the proper accessory state.
      */
     @Test
-    public void testSolicitedFeedbacksMonitored() {
+    public void testSolicitedFeedbacksMonitored() throws Exception {
         XNetPlusMessage jmriMsg = XNetPlusMessage.create(
             XNetMessage.getTurnoutCommandMsg(5, true, false, true)
         );
@@ -721,7 +738,7 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
         controller.pollMessage();
         controller.message(jmriMsg);
         
-        ReplyOutcome outcome = controller.processReply2(reply, () -> {});
+        ReplyOutcome outcome = processReplyNoException(reply, () -> {});
         assertTrue(outcome.isMessageFinished());
         
         assertNotEquals(Turnout.UNKNOWN, controller.getAccessoryState(5));

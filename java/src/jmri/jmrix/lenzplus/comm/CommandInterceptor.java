@@ -10,7 +10,7 @@ import jmri.jmrix.lenzplus.comm.CommandState.Phase;
  * 
  * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
-public interface CommandProcessor {
+public interface CommandInterceptor {
     /**
      * Processes the outgoing command. The CommandState and handler may be
      * changed. The returned value will determine the fate of the command:
@@ -26,9 +26,7 @@ public interface CommandProcessor {
      * Any other Phase values are illegal, will throw an exception that will be logged.
      * The exception will not prevent other Processors from operation.
      * 
-     * @param s
-     * @param decision
      * @return 
      */
-    public boolean processOutgoingCommand(CommandState s, Consumer<Phase> decision);
+    public Phase interceptCommand(CommandService service, CommandState s);
 }

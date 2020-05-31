@@ -22,6 +22,7 @@ public final class ReplyOutcome {
     private final CommandState state;
     private final XNetPlusReply targetReply;
     private final XNetPlusReply reply;
+    private boolean targetNotified;
     
     private Consumer<XNetPlusReply> marker;
     private Throwable exception;
@@ -156,6 +157,22 @@ public final class ReplyOutcome {
     
     public boolean isSolicited() {
         return state != null;
+    }
+
+    public boolean isTargetNotified() {
+        return targetNotified;
+    }
+
+    public void markTargetNotified() {
+        this.targetNotified = true;
+    }
+
+    public Consumer<XNetPlusReply> getMarker() {
+        return marker;
+    }
+
+    public void setMarker(Consumer<XNetPlusReply> marker) {
+        this.marker = marker;
     }
     
     @Override

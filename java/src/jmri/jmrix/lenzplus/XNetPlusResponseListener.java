@@ -14,7 +14,7 @@ public interface XNetPlusResponseListener extends XNetPlusListener {
        message(s.getReply()); 
     }
     
-    public default void concurrentLayoutOperation(CompletionStatus s) {
+    public default void concurrentLayoutOperation(CompletionStatus s, XNetPlusReply concurrent) {
     }
     
     public default void failed(CompletionStatus s) {

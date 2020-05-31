@@ -7,7 +7,7 @@ import jmri.jmrix.lenzplus.XNetPlusReply;
  * used to implement filters,
  * 
  * ReplyHandler's
- * {@link #preprocess} is called before the associated {@link CommandHandler} is
+ * {@link #intercept} is called before the associated {@link CommandHandler} is
  * asked to accept the packet. The ReplyHandler may break the connection from the 
  * reply to the associated message, which makes the reply <b>unsolicited</b>.
  * It can also overtake the handling of the reply - the associated CommandHandler
@@ -34,7 +34,7 @@ import jmri.jmrix.lenzplus.XNetPlusReply;
  * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public interface ReplyHandler {
-    public default ReplyOutcome preprocess(CommandState s, XNetPlusReply reply) {
+    public default ReplyOutcome intercept(CommandState s, XNetPlusReply reply) {
         return null;
     }
     

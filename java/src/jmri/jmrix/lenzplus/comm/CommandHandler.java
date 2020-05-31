@@ -409,7 +409,8 @@ public class CommandHandler extends CommandState {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("Handler[").append(Integer.toHexString(System.identityHashCode(this))).
-                append("]: ").append(getCommand().toString());
+                append("]: Command: ").
+                    append(Integer.toHexString(System.identityHashCode(getCommand())));
         if (getCommand() != getInitialCommand()) {
             sb.append("Initial command: ").
                     append(Integer.toHexString(System.identityHashCode(getInitialCommand())));

@@ -1,6 +1,8 @@
 package jmri.jmrix.lenzplus.comm;
 
+import java.util.List;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
+import jmri.jmrix.lenzplus.XNetPlusReply;
 import jmri.jmrix.lenzplus.comm.CommandState.Phase;
 
 /**
@@ -27,5 +29,9 @@ public class XNetPlusCommAccess {
 
     public static boolean advance(CommandHandler h) {
         return h.advance();
+    }
+    
+    public static ReplyOutcome callPreprocess(QueueController c, List<ReplyHandler> replyHandlers, CommandState s, XNetPlusReply r) {
+        return c.preprocess(replyHandlers, s, r);
     }
 }

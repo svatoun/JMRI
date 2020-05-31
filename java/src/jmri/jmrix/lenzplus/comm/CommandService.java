@@ -11,6 +11,7 @@ import org.openide.util.Lookup;
  * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
 public interface CommandService extends Lookup.Provider {
+    public CommandQueue getCommandQueue();
     /**
      * The current operating mode. {@code null} means normal operations.
      * @return 

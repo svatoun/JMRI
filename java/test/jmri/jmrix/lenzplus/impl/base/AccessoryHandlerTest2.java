@@ -19,6 +19,7 @@ import jmri.jmrix.lenzplus.FeedbackPlusItem;
 import jmri.jmrix.lenzplus.XNetPlusAccess;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.XNetPlusReply;
+import jmri.jmrix.lenzplus.comm.CommandQueue;
 import jmri.jmrix.lenzplus.comm.QueueController;
 import jmri.jmrix.lenzplus.comm.TrafficController;
 import jmri.jmrix.lenzplus.comm.XNetPlusCommAccess;
@@ -103,6 +104,11 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
         return accessoryMap.getOrDefault(id, Turnout.UNKNOWN);
     }
 
+    @Override
+    public CommandQueue getCommandQueue() {
+        return null;
+    }
+    
     @Override
     public boolean send(XNetPlusMessage msg, XNetListener callback) {
         return false;
@@ -452,7 +458,7 @@ public class AccessoryHandlerTest2 implements CommandService, TrafficController 
     }
     
     private void testFinishedWithReply(XNetPlusReply r) throws Exception {
-        queue.preprocess(Collections.emptyList(), 
+        XNetPlusCommAccess.callPreprocess(queue, Collections.emptyList(), 
                 XNetPlusCommAccess.state(queue, r.getResponseTo()), r);
         ReplyOutcome out = queue.processReply2(r, () -> {});
         Future<?> f;

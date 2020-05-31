@@ -129,7 +129,12 @@ public class XNetPlusTrafficController extends XNetPacketizer
         if (m == null) {
             return null;
         } else {
-            ll[0] = m.getReplyTarget();
+            AbstractMRListener l = getQueueController().getResponseTarget(m);
+            ll[0] = l;
+            synchronized (this) {
+                mCurrentState = WAITMSGREPLYSTATE;
+            }
+            LOG.debug("transmit loop has something to do: {}", m);
             return m;
         }
     }
@@ -324,7 +329,14 @@ public class XNetPlusTrafficController extends XNetPacketizer
             LOG.debug("dispatch reply of length {} contains \"{}\", state {}, origState {}", 
                     msg.getNumDataElements(), msg, m.mCurrentState, m.origCurrentState);
         }
-        Runnable r = new RcvNotifier(msg, target, this);
+        Runnable r = () -> {
+            try {
+                currentReply.set(msg);
+                notifyReply(msg, null, mLastSender);
+            } finally {
+                currentReply.remove();
+            }
+        };
         return distributeReply(msg, mLastSender, r);
     }
     

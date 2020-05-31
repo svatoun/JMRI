@@ -299,12 +299,35 @@ public class CommandQueue {
 
     @GuardedBy("this")
     private void addBlocked(CommandState s) {
+        synchronized (s) {
         if (s.getPhase() != Phase.SCHEDULED) {
             s.toPhase(Phase.BLOCKED);
+            }
         }
         blocks.computeIfAbsent(s, (x) -> new AtomicInteger()).incrementAndGet();
         priorityInsert(s, active, false);
     }
+    
+    /**
+     * Blocks the specified command. The command will not be returned form {@link #poll()}
+     * until it is unblocked. Note: if the blocked command is unblocked again, before it 
+     * reaches the head of the queue, it will maintain its position in the command stream.
+     * @param s command
+     * @return true, if the command was blocked.
+     */
+    public synchronized boolean block(CommandState s) {
+        if (!allQueued.contains(s) || s.getPhase().passed(Phase.SENT)) {
+            return false;
+        }
+        synchronized (s) {
+            if (s.getPhase() != Phase.SCHEDULED) {
+                s.toPhase(Phase.BLOCKED);
+            }
+        }
+        blocks.computeIfAbsent(s, (x) -> new AtomicInteger()).incrementAndGet();
+        return true;
+    }
+    
 
     @GuardedBy("this")
     void priorityInsert(CommandState s, List<CommandState> list, boolean reinsert) {

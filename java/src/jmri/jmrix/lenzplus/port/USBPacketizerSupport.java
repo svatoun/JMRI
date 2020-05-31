@@ -72,7 +72,7 @@ public class USBPacketizerSupport implements XNetPacketizerDelegate {
                 if (i == 0) {
                     log.debug("Receiving unsolicited message, starting with {}", Integer.toHexString(char1));
                 }
-                msg.setUnsolicited();
+                msg.setBroadcast();
             }
             msg.setElement(i, char1 & 0xFF);
             if (protocol.endOfMessage(msg)) {

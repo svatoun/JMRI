@@ -15,6 +15,7 @@ import jmri.jmrix.lenzplus.FeedbackPlusItem;
 import jmri.jmrix.lenzplus.XNetPlusAccess;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.XNetPlusReply;
+import jmri.jmrix.lenzplus.comm.CommandQueue;
 import jmri.jmrix.lenzplus.comm.CommandState.Phase;
 import jmri.jmrix.lenzplus.comm.XNetPlusCommAccess;
 import org.junit.After;
@@ -86,6 +87,11 @@ public class AccessoryHandlerTest implements CommandService {
         sentCommand = s;
         handler.addMessage(s);
         return s;
+    }
+
+    @Override
+    public CommandQueue getCommandQueue() {
+        return null;
     }
     
     CommandState sentCommand;

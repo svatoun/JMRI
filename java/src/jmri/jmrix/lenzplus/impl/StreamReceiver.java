@@ -232,11 +232,14 @@ public final class StreamReceiver implements Runnable, ReplySource {
     @Override
     public void resetExpectedReply(XNetPlusReply r) {
         synchronized (this) {
-            if (r == expectedReply) {
-                expectedReply = null;
-                transmitMark = false;
-                messageBeingSent = null;
+            if (r != expectedReply) {
+                LOG.warn("Reply does not match: {}", r);
+                // the command has ended; so we should probably clear all queued packets
+                recvQueue.forEach(m -> m.setResponseTo(null));
             }
+            expectedReply = null;
+            transmitMark = false;
+            messageBeingSent = null;
         }
     }
 

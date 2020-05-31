@@ -170,6 +170,10 @@ public class AccessoryHandler extends CommandHandler {
         if (finished == offCommand) {
             return true;
         }
+        if (!finished.getMessage().getCommandedOutputState()) {
+            // no OFF command for off.
+            return true;
+        }
         // generate OFF command, and attach to this handler.
         XNetPlusMessage msg = XNetPlusMessage.create(
                 XNetMessage.getTurnoutCommandMsg(

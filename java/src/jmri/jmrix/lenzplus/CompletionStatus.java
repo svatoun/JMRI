@@ -1,6 +1,7 @@
 package jmri.jmrix.lenzplus;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -76,5 +77,16 @@ public class CompletionStatus {
         } else {
             return replies;
         }
+    }
+    
+    public String toString() {
+        String s = command.toString() + 
+                ", success: " + success + 
+                ", timeout: " + isTimeout() +
+                ", concurrent: " + getConcurrentReply();
+        if (replies != null) {
+            s += ", replies: " + Arrays.asList(replies).toString();
+        }
+        return s;
     }
 }

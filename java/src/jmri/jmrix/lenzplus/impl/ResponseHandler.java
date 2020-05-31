@@ -35,6 +35,8 @@ public final class ResponseHandler extends StateMemento {
     int followupTimeout = 30;
     boolean replyInDispatch = true;
     boolean warmedUp = false;
+    
+    private XNetPlusReply   backlog;
 
     public ResponseHandler(ReplySource s, ReplyDispatcher dispatcher) {
         this.dispatcher = dispatcher;
@@ -52,14 +54,15 @@ public final class ResponseHandler extends StateMemento {
     XNetPlusReply r;
     
     ReplyOutcome loopUnsolicitedMessages() throws IOException {
-        LOG.debug("Loop unsolicited messages");
         while (receiver.isActive()) {
+            LOG.debug("Loop unsolicited messages");
             r = receiver.take();
             // re-check after possible block
             if (!receiver.isActive() || r == null) {
                 return null;
             }
-            LOG.debug("Received reply: {}", r);
+            LOG.debug("Received reply: {}, response to: {}" , r, r.getResponseTo());
+            
             dispatcher.snapshot(this);
 
             ReplyOutcome outcome = dispatcher.distributeReply(this, r, mLastSender);
@@ -78,6 +81,25 @@ public final class ResponseHandler extends StateMemento {
      * When acquired,
      */
     public void handleOneIncomingReply() throws IOException {
+        processOneCommand();
+    }
+    
+    void checkOutcomeConsistent(ReplyOutcome o) {
+        if (!o.isComplete() && o.isAdditionalReplyRequired()) {
+            // OK, we're waiting for additional message, but then we should not
+            // make any transition:
+            if (!(r.isUnsolicited() || r.isBroadcast())) {
+                LOG.warn("Going to make a transition on INCOMPLETE outcome: outcome: {}, reply: {}", o, r);
+            }
+            return;
+        }
+        // incomplete + no additional reply required; complete
+        if (r.isUnsolicited() || r.isBroadcast()) {
+            LOG.warn("Completed from unsolicited or broadcast; outcome: {}, reply: {}", o, r);
+        }
+    }
+    
+    void processOneCommand() throws IOException {
         replyInDispatch = true;
         ReplyOutcome outcome = loopUnsolicitedMessages();
         if (outcome == null) {
@@ -85,10 +107,14 @@ public final class ResponseHandler extends StateMemento {
         }
         XNetPlusReply solicited = r;
         try {
-            if (!r.isBroadcast()) {
-                makeTransition(r);
-            }
+            
+            makeTransition(outcome);
             while (!outcome.isComplete() && receiver.isActive()) {
+                /*
+                if (r.isUnsolicited()) {
+                    LOG.warn("ReplyHandler thinks the message is unsolicited, but is' NOT a broadcast");
+                }
+                */
                 if (outcome.isAdditionalReplyRequired()) {
                     LOG.debug("Unfinished command, required additional reply");
                     r = receiver.take();
@@ -109,8 +135,9 @@ public final class ResponseHandler extends StateMemento {
                     return;
                 }
                 LOG.debug("Additional reply outcome: {}", outcome);
-                if (!r.isBroadcast()) {
-                    makeTransition(r);
+                makeTransition(outcome);
+                if (outcome.isSolicited()) {
+                    solicited = r;
                 }
             }
         } finally {
@@ -197,6 +224,11 @@ public final class ResponseHandler extends StateMemento {
                     modeName(mCurrentMode), stateName(mCurrentState), replyInDispatch);
         }
         return true;
+    }
+    
+    void makeTransition(ReplyOutcome o) {
+        checkOutcomeConsistent(o);
+        makeTransition(r);
     }
 
     public void makeTransition(XNetPlusReply msg) {
