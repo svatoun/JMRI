@@ -4,6 +4,8 @@ import jmri.Turnout;
 import jmri.jmrix.lenz.XNetConstants;
 import jmri.jmrix.lenz.XNetListener;
 import jmri.jmrix.lenz.XNetMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * An extension of {@link XNetMessage} that holds extended processing info.
@@ -35,7 +37,9 @@ public class XNetPlusMessage extends XNetMessage {
         if (msg instanceof XNetPlusMessage) {
             return (XNetPlusMessage)msg;
         } else {
-            return new XNetPlusMessage(msg);
+            XNetPlusMessage r = new XNetPlusMessage(msg);
+            LOG.debug("Adapted XNet message {} to {}", msg, r);
+            return r;
         }
     }
     
@@ -164,4 +168,6 @@ public class XNetPlusMessage extends XNetMessage {
                n != -1 && n == other.getCommandedAccessoryNumber() &&
                getCommandedTurnoutStatus() == other.getCommandedTurnoutStatus();
     }
+    
+    private static Logger LOG = LoggerFactory.getLogger(XNetPlusMessage.class);
 }
