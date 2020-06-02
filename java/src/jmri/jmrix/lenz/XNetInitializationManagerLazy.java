@@ -5,10 +5,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import jmri.CommandStation;
+import jmri.ConsistManager;
 import jmri.GlobalProgrammerManager;
 import jmri.InstanceManager;
+import jmri.LightManager;
 import jmri.PowerManager;
+import jmri.SensorManager;
 import jmri.ThrottleManager;
+import jmri.TurnoutManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,16 +113,16 @@ public class XNetInitializationManagerLazy extends AbstractXNetInitializationMan
             systemMemo.setCommandStation(c);
             jmri.InstanceManager.store(c, jmri.CommandStation.class);
         });
-        optService(XNetConsistManager.class).ifPresent(systemMemo::setConsistManager);
-        optService(XNetTurnoutManager.class).ifPresent((t) -> {
+        optService(ConsistManager.class).ifPresent(systemMemo::setConsistManager);
+        optService(TurnoutManager.class).ifPresent((t) -> {
             systemMemo.setTurnoutManager(t);
             jmri.InstanceManager.setTurnoutManager(t);
         });
-        optService(XNetLightManager.class).ifPresent((l) -> {
+        optService(LightManager.class).ifPresent((l) -> {
             systemMemo.setLightManager(l);
             jmri.InstanceManager.setLightManager(l);
         });
-        optService(XNetSensorManager.class).ifPresent((s) -> {
+        optService(SensorManager.class).ifPresent((s) -> {
             systemMemo.setSensorManager(s);
             jmri.InstanceManager.setSensorManager(s);
         });
@@ -129,14 +133,14 @@ public class XNetInitializationManagerLazy extends AbstractXNetInitializationMan
         register(PowerManager.class, systemMemo::getPowerManager);
         register(ThrottleManager.class, systemMemo::getThrottleManager);
         register(CommandStation.class, systemMemo.getXNetTrafficController()::getCommandStation);
-        register(XNetSensorManager.class, () -> new XNetSensorManager(systemMemo));
+        register(SensorManager.class, () -> new XNetSensorManager(systemMemo));
         defineCompactServices();
     }
     
     protected void defineCompactServices() {
-        register(XNetTurnoutManager.class, () -> new XNetTurnoutManager(systemMemo));
-        register(XNetLightManager.class, () -> new XNetLightManager(systemMemo));
-        register(XNetConsistManager.class, () -> new XNetConsistManager(systemMemo));
+        register(TurnoutManager.class, () -> new XNetTurnoutManager(systemMemo));
+        register(LightManager.class, () -> new XNetLightManager(systemMemo));
+        register(ConsistManager.class, () -> new XNetConsistManager(systemMemo));
     }
     
     /**
