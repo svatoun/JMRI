@@ -6,8 +6,10 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.util.concurrent.Executors;
 import jmri.jmrix.ConnectionStatus;
 import jmri.jmrix.SystemConnectionMemo;
+import jmri.jmrix.lenz.AbstractXNetInitializationManager;
 import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.XNetConstants;
 import jmri.jmrix.lenz.XNetInitializationManager;
@@ -137,10 +139,14 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
         // start operation
         this.getSystemConnectionMemo().setXNetTrafficController(packets);
 
-        sourceThread = new Thread(this);
-        sourceThread.start();
+        Thread t = Executors.defaultThreadFactory().newThread(this);
+        t.start();
 
-        new XNetInitializationManager(this.getSystemConnectionMemo());
+        createInitManager();
+    }
+    
+    protected AbstractXNetInitializationManager createInitManager() {
+        return new XNetInitializationManager(getSystemConnectionMemo());
     }
 
     // Base class methods for the XNetSimulatorPortController interface
@@ -203,11 +209,15 @@ public class XNetSimulatorAdapter extends XNetSimulatorPortController implements
                 break;
             }
             XNetReply r = generateReply(m);
-            writeReply(r);
+            if (r != null) {
+                writeReply(r);
+                log.debug("Simulator Thread sent Reply {}", r);
+            }
             while ((r = generateAdditionalReply(m)) != null) {
                 writeReply(r);
+                log.debug("Simulator Thread sent Reply {}", r);
             }
-            log.debug("Simulator Thread sent Reply {}", r);
+            
         }
     }
 
