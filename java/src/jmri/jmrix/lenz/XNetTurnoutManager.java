@@ -22,6 +22,7 @@ public class XNetTurnoutManager extends jmri.managers.AbstractTurnoutManager imp
     public XNetTurnoutManager(XNetSystemConnectionMemo memo) {
         super(memo);
         tc = memo.getXNetTrafficController();
+        tc.getFeedbackMessageCache();
         tc.addXNetListener(XNetInterface.FEEDBACK, this);
     }
 
