@@ -62,13 +62,21 @@ public class CompletionStatus {
         if (replies == null) {
             return null;
         }
+        XNetPlusReply candidate = null;
         for (int i = replies.size() -1; i > 0; i--) {
             XNetPlusReply r= replies.get(i);
-            if (!r.isOkMessage()) {
+            if (r.isRetransmittableErrorMsg()) {
+                continue;
+            } else if (r.isUnsupportedError()) {
+                return r;
+            }
+            if (r.isOkMessage()) {
+                candidate = r;
+            } else {
                 return r;
             }
         }
-        return replies.get(0);
+        return candidate != null ? candidate : replies.get(0);
     }
 
     public List<XNetPlusReply> getAllReplies() {
