@@ -5,22 +5,26 @@
  */
 package jmri.jmrix.lenzplus.config;
 
-import jmri.jmrix.lenz.AbstractXNetInitializationManager;
+import jmri.TurnoutManager;
+import jmri.jmrix.lenz.XNetInitializationManagerLazy;
 import jmri.jmrix.lenz.XNetSystemConnectionMemo;
+import jmri.jmrix.lenzplus.XNetPlusTurnoutManager;
 
 /**
- *
- * @author sdedic
+ * Overrides standard jmrix.lenz services with alternative implementations,
+ * where applicable.
+ * 
+ * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
-public class LenzPlusInitializationManager extends AbstractXNetInitializationManager {
+public class LenzPlusInitializationManager extends XNetInitializationManagerLazy {
 
     public LenzPlusInitializationManager(XNetSystemConnectionMemo memo) {
         super(memo);
     }
 
     @Override
-    protected void init() {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    protected void defineServices() {
+        super.defineServices();
+        register(TurnoutManager.class, () -> new XNetPlusTurnoutManager(this.systemMemo));
     }
-    
 }

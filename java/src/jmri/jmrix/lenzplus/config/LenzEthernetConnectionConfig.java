@@ -1,9 +1,6 @@
 package jmri.jmrix.lenzplus.config;
 
-import jmri.jmrix.lenz.LenzCommandStation;
 import jmri.jmrix.lenz.liusbethernet.*;
-import jmri.jmrix.lenzplus.port.USBPacketizerSupport;
-import jmri.jmrix.lenzplus.XNetPlusTrafficController;
 
 /**
  */
@@ -56,7 +53,7 @@ public class LenzEthernetConnectionConfig extends ConnectionConfig {
     }
 
     @Override
-    public String typeName() {
+    public String typeId() {
         return getClass().getName() + ":" + flavour.name();
     }
 }

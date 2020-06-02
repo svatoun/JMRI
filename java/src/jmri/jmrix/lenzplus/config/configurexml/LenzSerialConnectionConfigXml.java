@@ -8,7 +8,6 @@ package jmri.jmrix.lenzplus.config.configurexml;
 import jmri.jmrix.lenz.configurexml.AbstractXNetSerialConnectionConfigXml;
 import jmri.jmrix.lenz.li100.LI100Adapter;
 import jmri.jmrix.lenz.liusb.LIUSBAdapter;
-import jmri.jmrix.lenzplus.config.LenzPlusSystemConnectionMemo;
 import jmri.jmrix.lenzplus.config.ConnectionType;
 import jmri.jmrix.lenzplus.config.LenzSerialConnectionConfig;
 import org.jdom2.Element;

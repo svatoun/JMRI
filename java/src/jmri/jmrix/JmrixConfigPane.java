@@ -179,7 +179,7 @@ public class JmrixConfigPane extends JPanel implements PreferencesPanel {
         if (manuBox.getSelectedIndex() != 0) {
             for (String className : classConnectionNameList) {
                 ConnectionConfig config;
-                if (original != null && original.typeName().equals(className)) {
+                if (original != null && original.typeId().equals(className)) {
                     config = original;
                     log.debug("matched existing config object");
                     modeBox.addItem(config.name());
@@ -301,10 +301,11 @@ public class JmrixConfigPane extends JPanel implements PreferencesPanel {
                 cfg = (jmri.jmrix.ConnectionConfig) cl.getDeclaredConstructor().newInstance();
             } else {
                 Method factoryMethod = cl.getDeclaredMethod(factoryMethodName);
+                factoryMethod.setAccessible(true);
                 cfg = (jmri.jmrix.ConnectionConfig)factoryMethod.invoke(null);
             }
             // sanity check of the backwards typename mapping:
-            if (cfg != null && !cfg.typeName().equals(instanceSpec)) {
+            if (cfg != null && !cfg.typeId().equals(instanceSpec)) {
                 log.warn("Incorrect type name for {}. Ignoring...", cfg);
                 return null;
             } else {

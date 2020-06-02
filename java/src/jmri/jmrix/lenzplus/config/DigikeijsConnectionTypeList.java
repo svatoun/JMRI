@@ -5,10 +5,7 @@ import jmri.jmrix.ConnectionTypeList;
 import org.openide.util.lookup.ServiceProvider;
 
 /**
- * Returns a list of valid lenz XpressNet Connection Types
- *
- * @author Bob Jacobsen Copyright (C) 2010
- * @author Kevin Dickerson Copyright (C) 2010
+ * Returns a list of valid Digikeijs XpressNet Connection Types.
  *
  */
 @ServiceProvider(service = ConnectionTypeList.class)

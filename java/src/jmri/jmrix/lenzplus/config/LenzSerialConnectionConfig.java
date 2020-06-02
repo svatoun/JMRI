@@ -79,7 +79,7 @@ public class LenzSerialConnectionConfig extends jmri.jmrix.lenz.AbstractXNetSeri
     }
 
     @Override
-    public String typeName() {
+    public String typeId() {
         return getClass().getName() + ":" + flavour.name();
     }
     

@@ -88,7 +88,7 @@ public interface ConnectionConfig {
      * @return connection type name/identifier.
      * @since 4.20
      */
-    public default String typeName() {
+    public default String typeId() {
         return getClass().getName();
     }
 }
