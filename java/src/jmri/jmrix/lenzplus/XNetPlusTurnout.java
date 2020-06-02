@@ -54,8 +54,6 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetPlusResponseList
     @GuardedBy("this")
     protected int _mClosed = jmri.Turnout.CLOSED;
 
-    protected String _prefix = "X"; // default
-
     public XNetPlusTurnout(String prefix, int pNumber, XNetTrafficController controller) {  // a human-readable turnout number must be specified!
         super(prefix, pNumber, controller);
         tc = controller;
@@ -180,7 +178,7 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetPlusResponseList
     @Override
     public void requestUpdateFromLayout() {
         // This will handle ONESENSOR and TWOSENSOR feedback modes.
-        super.requestUpdateFromLayout();
+        superRequestUpdateFromLayout();
 
         // To do this, we send an XpressNet Accessory Decoder Information
         // Request.
@@ -754,8 +752,6 @@ public class XNetPlusTurnout extends XNetTurnout implements XNetPlusResponseList
     }
 
     // data members
-    protected int mNumber;   // XpressNet turnout number
-
     private static final Logger log = LoggerFactory.getLogger(XNetPlusTurnout.class);
     
 }

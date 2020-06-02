@@ -10,10 +10,12 @@ import jmri.jmrix.lenzplus.port.XNetProtocol;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
 import jmri.jmrix.AbstractMRReply;
@@ -148,7 +150,7 @@ public class XNetPlusTrafficController extends XNetPacketizer
             throw new IllegalArgumentException(l.getClass().getName());
         }
         XNetPlusMessage m2 = (XNetPlusMessage)m;
-        if (m2.getReplyTarget() != l) {
+        if (m2.getReplyTarget() != null && m2.getReplyTarget() != l) {
             throw new IllegalArgumentException(Objects.toString(l));
         }
         cmdController.replay(m2);
@@ -377,5 +379,29 @@ public class XNetPlusTrafficController extends XNetPacketizer
         return new XNetPlusReply();
     }
     
+    @Override
+    protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
+        CompletionStatus st = new CompletionStatus(XNetPlusMessage.create((XNetMessage)msg));
+        if (l instanceof XNetPlusResponseListener) {
+            ((XNetPlusResponseListener)l).failed(st);
+            l = null;
+        }
+        this.cmdController.terminateTimeout((XNetMessage)msg);
+        receiver().resetExpectedReply(null);
+        super.handleTimeout(msg, l);
+        List<AbstractMRListener> list;
+        synchronized(this) {
+            list = cmdListeners.stream().filter(x -> x instanceof XNetPlusListener).collect(
+                    Collectors.toList());
+        }
+        for (AbstractMRListener item : list) {
+            if (item instanceof XNetPlusResponseListener) {
+                ((XNetPlusResponseListener)item).failed(st);
+            } else if (item instanceof XNetPlusListener) {
+                ((XNetPlusListener)item).notifyTimeout(st.getCommand());
+            }
+        }
+    }
+
     private static final Logger LOG = LoggerFactory.getLogger(XNetPlusTrafficController.class);
 }

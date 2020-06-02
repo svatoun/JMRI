@@ -15,7 +15,7 @@ import org.junit.Before;
  */
 public class JUnitTestBase {
     @Before
-    public void setUp() {
+    public void setUp() throws Exception{
         String old = System.setProperty("java.awt.headless", "true");
         try {
             JUnitUtil.setUp();
@@ -29,7 +29,7 @@ public class JUnitTestBase {
     }
     
     @After
-    public void tearDown() {
+    public void tearDown() throws Exception {
         JUnitUtil.tearDown();
     }
 }

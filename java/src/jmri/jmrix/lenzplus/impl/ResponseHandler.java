@@ -70,6 +70,9 @@ public final class ResponseHandler extends StateMemento {
             if (outcome.isSolicited()) {
                 return outcome;
             }
+            if (r.isRetransmittableErrorMsg()) {
+                System.err.println("error");
+            }
         }
         LOG.debug("Receiver de-activated");
         return null;
@@ -142,6 +145,11 @@ public final class ResponseHandler extends StateMemento {
             }
         } finally {
             dispatcher.commandFinished(this, outcome);
+            if (outcome.getException() != null) {
+                Throwable t = outcome.getException();
+                LOG.error("An error occurred during reply processing: {}", t.getMessage());
+                LOG.error("Stacktrace:", t);
+            }
             if (receiver.isActive()) {
                 receiver.resetExpectedReply(solicited);
                 commit();

@@ -1,6 +1,5 @@
 package jmri.jmrix.lenzplus.comm;
 
-import java.util.function.Consumer;
 import jmri.jmrix.lenzplus.comm.CommandState.Phase;
 
 /**
@@ -12,12 +11,11 @@ import jmri.jmrix.lenzplus.comm.CommandState.Phase;
  */
 public interface CommandInterceptor {
     /**
-     * Processes the outgoing command. The CommandState and handler may be
-     * changed. The returned value will determine the fate of the command:
-     * <ul>
-     * <li>{@link Phase#QUEUED}: the command will return back to the head of the queue,
-     * so it is subject to scheduling, blocking, etc.
-     * <li>{@link Phase#BLOCKED}: the command becomes blocked. It must be unblocked
+     * Processes the outgoing command.The CommandState and handler may be
+ changed.The returned value will determine the fate of the command:
+    <ul>
+    <li>{@link Phase#QUEUED}: the command will return back to the head of the queue,
+ so it is subject to scheduling, blocking, etc.<li>{@link Phase#BLOCKED}: the command becomes blocked. It must be unblocked
      * externally in that case, using {#link CommadnService#unblock}.
      * <li>{@link Phase#EXPIRED}: the command expires. This will effectively break
      * the command's {@link CommandHandler} and causes it to expire too, including any
@@ -26,7 +24,9 @@ public interface CommandInterceptor {
      * Any other Phase values are illegal, will throw an exception that will be logged.
      * The exception will not prevent other Processors from operation.
      * 
-     * @return 
+     * @param service the command service instance
+     * @param s the intercepted command
+     * @return the decision
      */
     public Phase interceptCommand(CommandService service, CommandState s);
 }

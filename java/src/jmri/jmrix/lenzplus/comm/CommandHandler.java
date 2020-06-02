@@ -410,10 +410,10 @@ public class CommandHandler extends CommandState {
         StringBuilder sb = new StringBuilder();
         sb.append("Handler[").append(Integer.toHexString(System.identityHashCode(this))).
                 append("]: Command: ").
-                    append(Integer.toHexString(System.identityHashCode(getCommand())));
+                    append(Integer.toHexString(System.identityHashCode(getCommand().getMessage())));
         if (getCommand() != getInitialCommand()) {
             sb.append("Initial command: ").
-                    append(Integer.toHexString(System.identityHashCode(getInitialCommand())));
+                    append(Integer.toHexString(System.identityHashCode(getInitialCommand().getMessage())));
         }
         return sb.toString();
     }
@@ -422,17 +422,6 @@ public class CommandHandler extends CommandState {
     
     //----------- Trampolines
 
-    protected void markOutcome(ReplyOutcome out, Consumer<XNetPlusReply> c) {
-        out.mark(c);
-    }
-    
-    protected boolean toPhase(CommandState s, Phase p) {
-        if (!getAllCommands().contains(s)) {
-            throw new IllegalArgumentException("Command " + s + " not owned by " + this);
-        }
-        return s.toPhase(p);
-    }
-    
     /**
      * Trivial listener, which does nothing.
      */

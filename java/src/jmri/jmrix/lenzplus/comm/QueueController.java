@@ -299,6 +299,7 @@ public class QueueController implements CommandService {
                 }
             }
         } while (s == null);
+        LOG.debug("Polled: " + s.getMessage());
         return s.getMessage();
     }
     
@@ -355,6 +356,12 @@ public class QueueController implements CommandService {
                 if (processedReplyAction.addMessage(state)) {
                     LOG.debug("Accepted {} into {}", state, processedReplyAction);
                     cmd = processedReplyAction;
+                    if (callback != null) {
+                        if (msg.getReplyTarget() != null) {
+                            throw new IllegalArgumentException("Cannot use message-callback and command-callback at the same time");
+                        }
+                        msg.replyTo(callback);
+                    }
                 }
             }
             if (cmd == null) {
@@ -684,10 +691,7 @@ public class QueueController implements CommandService {
             msg = reply.getResponseTo();
             cs = state(msg);
             
-            boolean shouldCallTarget = false;
-            boolean simpleListener = false;
             CommandHandler h = null;
-            
             if (out2 != null) {
                 out = out2;
             } else if (msg != null) {
@@ -713,12 +717,6 @@ public class QueueController implements CommandService {
                     }
                 }
                 filterThroughQueued(reply, h);
-                
-                shouldCallTarget = 
-                        (out.isComplete() || !out.isAdditionalReplyRequired()) &&
-                        (cs != h.getInitialCommand());
-                // compat boost:
-                simpleListener = false; // isSimpleTarget(out, cs);
             }
             try {
                 // dangerous, calls out to random listeners in JMRI code
@@ -729,11 +727,14 @@ public class QueueController implements CommandService {
                 }
                 out.withError(ex);
             }
+            notifyTargetPartial(out, h, msg);
+            /*
             if (shouldCallTarget) {
                 // for all but the initial command, notify the target. The initial command
                 // will be handled later.
                 notifyTarget(out, h, msg);
             }
+            */
         } catch (Exception ex) {
             if (out == null) {
                 out = ReplyOutcome.finished(reply);
@@ -766,16 +767,64 @@ public class QueueController implements CommandService {
     }
     
     /**
-     * Notifies the message target. Possibly sends directed notification to the target.
-     * Simple listeners get each messages that has been processed. 
-     * <p>
+     * Notifies about a partial reply. Listeners attached <b>explicitly</b> to a message
+     * will be notified about that message. To support older code, a Listener attached
+     * to a Handler (specified in sendXNetMessage) will be also called; but NOT
+     * {@link XNetPlusResponseListener}.
      * 
-     * @param outcome
-     * @param h
-     * @param m the message. {@code null} indicates entire command has completed.
+     * @param outcome the reply outcome
+     * @param h the handler
+     * @param msg the message. {@code null} indicates an unsoliciated message
      */
-    void notifyTarget2(ReplyOutcome outcome, CommandHandler h, XNetPlusMessage m) {
-        
+    void notifyTargetPartial(ReplyOutcome outcome, CommandHandler h, XNetPlusMessage msg) {
+        if (msg == null || h == null) {
+            // unsolicited message can not notify anything
+            return;
+        }
+        XNetListener l = msg.getReplyTarget();
+        CommandState st = outcome.getState();
+        if (l == null) {
+            if (h == null) {
+                LOG.warn("Unexpected null handler");
+                return;
+            }
+            l = h.getTarget();
+            // only call handler target for OLD-style listeners. If ResponseListener
+            // wants to be notified about a specific command, it should attach itself
+            // to the specific command
+            if (l instanceof XNetPlusResponseListener) {
+                return;
+            }
+        }
+        CompletionStatus cs = st.getCompletionStatus();
+        Phase cp = st.getPhase();
+        if (cp == Phase.FINISHED) {
+            cs.success();
+        }
+        XNetPlusReply reply = outcome.getTargetReply();
+        LOG.debug("Notify reply {} for command {} to {}", reply, outcome.getState(), l);
+        try {
+            LOG.debug("Notifying XNet target: {}", l);
+            outcome.markTargetNotified();
+            l.message(reply);
+        } catch (Exception ex) {
+            LOG.error("Error during XNet target notification", ex);
+            outcome.withError(ex);
+        }
+    }
+    
+    void notifyTargetFinal(ReplyOutcome outcome, CommandHandler h) {
+        if (outcome.isTargetNotified()) {
+            return;
+        }
+        XNetListener l = h.getTarget();
+        CommandState st = h.getRepresentativeCommand();
+        CompletionStatus cs = st.getCompletionStatus();
+        Phase cp = st.getPhase();
+        if (cp == Phase.FINISHED) {
+            cs.success();
+        }
+        sendNoticiation(outcome, l, cp, cs);
     }
     
     /**
@@ -807,28 +856,34 @@ public class QueueController implements CommandService {
             l = h.getTarget();
             cs = h.getInitialCommand().getCompletionStatus();
         }
+        sendNoticiation(outcome, l, cp, cs);
+    }
+    
+    void sendNoticiation(ReplyOutcome outcome, XNetListener l, Phase cp, CompletionStatus cs) {
+        if (l == null) {
+            return;
+        }
+        XNetPlusReply reply = outcome.getTargetReply();
         LOG.debug("Notify reply {} for command {} to {}", reply, outcome.getState(), l);
-        if (l != null) {
-            try {
-                if (l instanceof XNetPlusResponseListener) {
-                    XNetPlusResponseListener xnprl = (XNetPlusResponseListener)l;
-                    LOG.debug("Notifying PLUS target: {}", l);
-                    if (cp != Phase.FINISHED) {
-                        if (cp == Phase.REJECTED) {
-                            return;
-                        }
-                        xnprl.failed(cs);
-                    } else {
-                        xnprl.completed(cs);
+        try {
+            if (l instanceof XNetPlusResponseListener) {
+                XNetPlusResponseListener xnprl = (XNetPlusResponseListener)l;
+                LOG.debug("Notifying PLUS target: {}", l);
+                if (cp != Phase.FINISHED) {
+                    if (cp == Phase.REJECTED) {
+                        return;
                     }
+                    xnprl.failed(cs);
                 } else {
-                    LOG.debug("Notifying XNet target: {}", l);
-                    l.message(reply);
+                    xnprl.completed(cs);
                 }
-            } catch (Exception ex) {
-                LOG.error("Error during XNet target notification", ex);
-                outcome.withError(ex);
+            } else {
+                LOG.debug("Notifying XNet target: {}", l);
+                l.message(reply);
             }
+        } catch (Exception ex) {
+            LOG.error("Error during XNet target notification", ex);
+            outcome.withError(ex);
         }
     }
     
@@ -853,7 +908,7 @@ public class QueueController implements CommandService {
                 action.finished(outcome, s);
                 if (action.advance()) {
                     terminate(action, s.getPhase().isConfirmed());
-                    notifyTarget(outcome, action, null);
+                    notifyTargetFinal(outcome, action);
                 }
             }
         } finally {
@@ -956,6 +1011,15 @@ public class QueueController implements CommandService {
         }
         debugPrintState();
         LOG.debug("Expiration check ends");
+    }
+    
+    public void terminateTimeout(XNetMessage cmd) {
+        XNetPlusMessage msg = XNetPlusMessage.create(cmd);
+        CommandState st = state(msg);
+        if (st == null) {
+            return;
+        }
+        terminate(st.getHandler(), false);
     }
     
     public void terminate(CommandHandler ac, boolean success) {

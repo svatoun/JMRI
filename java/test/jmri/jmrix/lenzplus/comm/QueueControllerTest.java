@@ -301,11 +301,10 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
             XNetMessage.getTurnoutCommandMsg(10, true, false, true)
         );
         
-        controller.send(start, new XNetAdapter() {
+        controller.send(start, new XNetPlusResponseListener() {
             @Override
-            public void message(XNetReply msg) {
-                super.message(msg);
-                targetReply = msg;
+            public void completed(CompletionStatus s) {
+                targetReply = s.getReply();
             }
         });
         
@@ -356,11 +355,10 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
     public void testSendSimpleCommand() throws Exception {
         XNetPlusMessage query = XNetPlusMessage.create(XNetMessage.getCSVersionRequestMessage());
         
-        controller.send(query, new XNetAdapter() {
+        controller.send(query, new XNetPlusResponseListener() {
             @Override
-            public void message(XNetReply msg) {
-                super.message(msg);
-                targetReply = msg;
+            public void completed(CompletionStatus s) {
+                targetReply = s.getReply();
             }
         });
         controller.pollMessage();
@@ -386,11 +384,10 @@ public class QueueControllerTest extends JUnitTestBase implements TrafficControl
             XNetMessage.getTurnoutCommandMsg(10, true, false, true)
         );
         
-        controller.send(start, new XNetAdapter() {
+        controller.send(start, new XNetPlusResponseListener() {
             @Override
-            public void message(XNetReply msg) {
-                super.message(msg);
-                targetReply = msg;
+            public void completed(CompletionStatus s) {
+                targetReply = s.getReply();
             }
         });
         

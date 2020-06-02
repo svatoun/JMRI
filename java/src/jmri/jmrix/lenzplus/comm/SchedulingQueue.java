@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
  * 
  * @author svatopluk.dedic@gmail.com Copyright (c) 2020
  */
-public class SchedulingQueue extends CommandQueue {
+class SchedulingQueue extends CommandQueue {
     /**
      * Service used to schedule delayed messages.
      */

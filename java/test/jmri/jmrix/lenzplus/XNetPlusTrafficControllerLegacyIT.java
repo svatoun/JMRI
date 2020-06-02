@@ -1,5 +1,11 @@
-package jmri.jmrix.lenz;
+package jmri.jmrix.lenzplus;
 
+import jmri.jmrix.lenz.*;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,16 +26,15 @@ import jmri.InstanceManager;
 import jmri.Turnout;
 import jmri.jmrix.AbstractMRListener;
 import jmri.jmrix.AbstractMRMessage;
-import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
+import jmri.jmrix.lenzplus.config.LenzPlusSystemConnectionMemo;
+import jmri.jmrix.lenzplus.port.DefaultPacketizerSupport;
+import jmri.jmrix.lenzplus.port.USBPacketizerSupport;
+import jmri.jmrix.lenzplus.port.XNetPacketizerDelegate;
 import jmri.util.JUnitAppender;
 import jmri.util.JUnitUtil;
 import jmri.util.ThreadingUtil;
 import org.apache.log4j.Level;
 import org.junit.After;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -39,9 +44,9 @@ import org.slf4j.LoggerFactory;
  * Integration tests for XNetTrafficController
  * @author svatopluk.dedic@gmail.com
  */
-public class XNetTrafficControllerIT {
+public class XNetPlusTrafficControllerLegacyIT extends JUnitTestBase {
     XNetTestSimulator testAdapter;
-    XNetPacketizer lnis;
+    TestXNetPlusTrafficController lnis;
     
     volatile boolean blockMessageQueue;
     final Semaphore messageQueuePermits = new Semaphore(0);
@@ -50,7 +55,7 @@ public class XNetTrafficControllerIT {
     
     XNetTurnoutManager xnetManager;
     
-    MessageOutput output;
+    TestXNetPlusTrafficController output;
     
     private void injectMessages() {
         List<Runnable> r = new ArrayList<>();
@@ -59,8 +64,9 @@ public class XNetTrafficControllerIT {
     }
         
     @Before
-    public void setUp() {
-        JUnitUtil.setUp();
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
 
         // prepare an interface
         jmri.util.JUnitUtil.resetInstanceManager();
@@ -69,15 +75,11 @@ public class XNetTrafficControllerIT {
         jmri.InstanceManager.store(new jmri.NamedBeanHandleManager(), jmri.NamedBeanHandleManager.class);
     }
     
-    public interface MessageOutput {
-        public void sendMessage(AbstractMRMessage m, AbstractMRListener reply);
-    }
-    
     volatile XNetMessage originalMessage;
     Map<XNetMessage, AtomicInteger> retryCounters = Collections.synchronizedMap(new IdentityHashMap<>());
     
-    class TestUSBPacketizer extends LIUSBXNetPacketizer implements MessageOutput {
-        public TestUSBPacketizer(LenzCommandStation pCommandStation) {
+    class TestXNetPlusTrafficController extends XNetPlusTrafficController {
+        public TestXNetPlusTrafficController(LenzCommandStation pCommandStation) {
             super(pCommandStation);
             output = this;
         }
@@ -130,84 +132,22 @@ s         */
                 timeoutOccured = true;
             }
         }
-
-        // Just a trampoline
-        @Override
-        public synchronized void sendMessage(AbstractMRMessage m, AbstractMRListener reply) {
-            super.sendMessage(m, reply);
-        }
-    }
-
-    class TestPacketizer extends XNetPacketizer implements MessageOutput {
-
-        public TestPacketizer(LenzCommandStation pCommandStation) {
-            super(pCommandStation);
-            output = this;
-        }
-    
-        /**
-         * Counts the number of retries after errors, does NOT count retries
-         * after timeout.
-s         */
-        @Override
-        protected void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
-            XNetMessage msg = (XNetMessage)m;
-            // for each *instance* of message, track the number of attempts to send.
-            // XNetMessage with the same payload are equals(), but we want to track instances,
-            // to see what msg was actually re-send, and which was just replicated
-            synchronized (this)  {
-                retryCounters.computeIfAbsent(msg, (k) -> new AtomicInteger()).incrementAndGet();
-                originalMessage = msg;
-            }
-            super.forwardToPort(m, reply);
-        }
-
-        @Override
-        protected AbstractMRMessage pollMessage() {
-            AbstractMRMessage mrm = super.pollMessage(); 
-            if (mrm == null) {
-                return null;
-            }
-            injectMessages();
-            return mrm;
-        }
-        
-        @Override
-        protected AbstractMRMessage takeMessageToTransmit(AbstractMRListener[] ll) {
-            AbstractMRMessage mrm = super.takeMessageToTransmit(ll);
-            if (blockMessageQueue) {
-                try {
-                    messageQueuePermits.acquire();
-                    injectMessages();
-                } catch (InterruptedException ex) {
-
-                }
-            }
-            return mrm;
-        }
-
-        @Override
-        protected void handleTimeout(AbstractMRMessage msg, AbstractMRListener l) {
-            super.handleTimeout(msg, l);
-            timeoutOccured = true;
-        }
-
-        // Just a trampoline
-        @Override
-        public synchronized void sendMessage(AbstractMRMessage m, AbstractMRListener reply) {
-            super.sendMessage(m, reply);
-        }
     }
     
     private void initializeLayout(XNetTestSimulator adapter) throws Exception {
-        initializeLayout(adapter, new TestPacketizer(new LenzCommandStation()));
+        initializeLayout(adapter, new DefaultPacketizerSupport());
     }
     
-    private void initializeLayout(XNetTestSimulator adapter, XNetPacketizer packetizer) throws Exception {
+    private void initializeLayout(XNetTestSimulator adapter, XNetPacketizerDelegate packetizer) throws Exception {
         testAdapter = adapter;
-        lnis = packetizer;
+        lnis = new TestXNetPlusTrafficController(new LenzCommandStation());
+        lnis.setPacketizer(packetizer);
+        LenzPlusSystemConnectionMemo memo = new LenzPlusSystemConnectionMemo(lnis);
+        testAdapter.setSystemConnectionMemo(memo);
         testAdapter.configure(lnis);
+        memo.setTurnoutManager(new XNetTurnoutManager(memo));
         xnetManager = (XNetTurnoutManager)InstanceManager.getDefault().getInstance(XNetSystemConnectionMemo.class).getTurnoutManager();
+//        xnetManager = (XNetTurnoutManager)memo.getTurnoutManager();
         
         // queue a null message, simulator will signal when it is transmitted -
         // all startup messages are already procesed.
@@ -220,6 +160,7 @@ s         */
     private boolean clearErrors;
 
     @After
+    @Override
     public void tearDown() throws Exception {
         XNetTrafficController ctrl = (XNetTrafficController)output; 
         ctrl.terminateThreads();
@@ -231,7 +172,7 @@ s         */
             JUnitAppender.resetUnexpectedMessageFlags(Level.ERROR);
         }
         
-        JUnitUtil.tearDown();
+        super.tearDown();
     }
 
     /**
@@ -258,9 +199,9 @@ s         */
                 l.countDown();
             }
         };
-        output.sendMessage(m, callback);
-        output.sendMessage(m2, callback);
-        output.sendMessage(m3, callback);
+        output.sendXNetMessage(m, callback);
+        output.sendXNetMessage(m2, callback);
+        output.sendXNetMessage(m3, callback);
         
         simul.repliesAllowed.release(100);
         
@@ -270,6 +211,13 @@ s         */
         assertEquals(Arrays.asList(m, m2, m3), msgs);
     }
     
+    private List<XNetPlusMessage> toPlusMessages(List<XNetMessage> l) {
+        for (int i = 0; i < l.size(); i++) {
+            l.set(i, XNetPlusMessage.create(l.get(i)));
+        }
+        return (List<XNetPlusMessage>)(List)l;
+    }
+    
     /**
      * Checks that a priority message will preempt existing messages
      * in the queue, and also new messages that should be yet sent.
@@ -277,16 +225,16 @@ s         */
      */
     @Test
     public void testSendPriorityMessages() throws Exception {
-        XNetTestSimulator simul = new XNetTestSimulator.LZV100();
+        XNetTestSimulator simul = new XNetTestSimulator.LZV100(true);
         initializeLayout(simul);
         
         simul.setCaptureMessages(true);
         
-        XNetMessage m = XNetMessage.getCSVersionRequestMessage();       
-        XNetMessage m2 = XNetMessage.getCSStatusRequestMessage();
-        XNetMessage m3 = XNetMessage.getLocomotiveInfoRequestMsg(1);
-        XNetMessage m4 = XNetMessage.getLocomotiveFunctionStatusMsg(1);
-        XNetMessage m5 = XNetMessage.getEmergencyOffMsg();
+        XNetPlusMessage m = XNetPlusMessage.create(XNetMessage.getCSVersionRequestMessage());
+        XNetPlusMessage m2 = XNetPlusMessage.create(XNetMessage.getCSStatusRequestMessage());
+        XNetPlusMessage m3 = XNetPlusMessage.create(XNetMessage.getLocomotiveInfoRequestMsg(1));
+        XNetPlusMessage m4 = XNetPlusMessage.create(XNetMessage.getLocomotiveFunctionStatusMsg(1));
+        XNetPlusMessage m5 = XNetPlusMessage.create(XNetMessage.getEmergencyOffMsg());
         
         CountDownLatch l = new CountDownLatch(5);
         XNetListener callback = new XNetListenerScaffold() {
@@ -299,11 +247,11 @@ s         */
         simul.drainPackets(true);
         
         // better sync: wait for 1st m message to be taken from the queue + put the rest in the queue:
-        blockMessageQueue = true;
 
         synchronized (output) {
-            output.sendMessage(m, callback);    // xmit thread will stop after dequeing this
-            output.sendMessage(m2, callback);   // will sit already in the transmit queue after the xmit thread goes to fetch
+            blockMessageQueue = true;
+            output.sendXNetMessage(m, callback);    // xmit thread will stop after dequeing this
+            output.sendXNetMessage(m2, callback);   // will sit already in the transmit queue after the xmit thread goes to fetch
         }
 
         injectMessageQueue.add(() -> {
@@ -316,7 +264,7 @@ s         */
             // and m5 queues normally at the end.
             lnis.sendHighPriorityXNetMessage(m3, callback);
             lnis.sendHighPriorityXNetMessage(m4, callback);
-            output.sendMessage(m5, callback);
+            output.sendXNetMessage(m5, callback);
         });
         
         // all is set up, release the xmit thread.
@@ -324,7 +272,7 @@ s         */
         
         l.await(300, TimeUnit.MILLISECONDS);
         
-        List<XNetMessage> msgs = simul.getOutgoingMessages();
+        List<XNetPlusMessage> msgs = toPlusMessages(simul.getOutgoingMessages());
         assertEquals(Arrays.asList(m, m3, m4, m2, m5), msgs);
     }
     
@@ -350,7 +298,7 @@ s         */
      */
     @Test
     public void testFeedbackOnlyAccepted() throws Exception {
-        XNetTestSimulator simul = new XNetTestSimulator.NanoXGenLi();
+        XNetTestSimulator simul = new XNetTestSimulator.NanoXGenLi(true);
         initializeLayout(simul);
 
         Turnout t = initOnLayout(() -> {
@@ -370,7 +318,7 @@ s         */
         List<XNetReply> replies = simul.getIncomingReplies();
         
         assertFalse("Must not time out", timeoutOccured);
-        assertEquals("Expected one feedback and 3 OKs for OFF messages", 4, replies.size());
+        assertEquals("Expected one feedback and 3 OKs for OFF messages", 3, replies.size());
         assertEquals("Feedback reply expected", 0x42, replies.get(0).getElement(0));
     }
     
@@ -380,7 +328,7 @@ s         */
      */
     @Test
     public void testInterfaceOKOnlyAccepted() throws Exception {
-        XNetTestSimulator simul = new XNetTestSimulator.LZV100();
+        XNetTestSimulator simul = new XNetTestSimulator.LZV100(true);
         initializeLayout(simul);
         
         Turnout t = initOnLayout(() -> {
@@ -417,19 +365,19 @@ s         */
     @Test
     public void testFeedbackAndOKProcessedBeforeNextCommand() throws Exception {
         
-        XNetTestSimulator simul = new XNetTestSimulator.LZV100_USB();
+        XNetTestSimulator simul = new XNetTestSimulator.LZV100_USB(true);
         CountDownLatch l = new CountDownLatch(1);
         CountDownLatch l2 = new CountDownLatch(1);
         
         AtomicReference<AbstractMRMessage> marker = new AtomicReference<>();
         
-        initializeLayout(simul, new TestUSBPacketizer(new LenzCommandStation()) {
+        USBPacketizerSupport s = new USBPacketizerSupport() {
             boolean count2 = false;
 
             @Override
-            protected void forwardToPort(AbstractMRMessage m, AbstractMRListener reply) {
+            public void forwardToPort(XNetPlusMessage m, XNetListener reply) {
                 
-                synchronized (XNetTrafficControllerIT.this) {
+                synchronized (XNetPlusTrafficControllerLegacyIT.this) {
                     super.forwardToPort(m, reply); 
                     if (count2) {
                         l2.countDown();
@@ -440,8 +388,10 @@ s         */
                     }
                 }
             }
-        });
+        };
 
+        initializeLayout(simul, s);
+        
         Turnout t = initOnLayout(() -> {
             Turnout x = xnetManager.provideTurnout("XT21");
             return x;
@@ -462,15 +412,15 @@ s         */
             // block property changes for a while
             synchronized (t) {
                 t.setCommandedState(XNetTurnout.THROWN);
-                XNetMessage msg = new XNetMessage("21 24 05");
+                XNetPlusMessage msg = new XNetPlusMessage("21 24 05");
                 lnis.sendXNetMessage(msg, null);
                 marker.set(msg);
             }
         });
-        assertTrue(l.await(300, TimeUnit.MILLISECONDS));
 
+        assertTrue(l.await(300, TimeUnit.MILLISECONDS));
         // the turnout must be already IDLE
-        assertEquals(XNetTurnout.IDLE, ((XNetTurnout)t).internalState);
+        assertEquals(XNetPlusTurnout.IDLE, XNetAccess.getInternalState((XNetTurnout)t));
         
         // sleep for some more time, to get the final reply:
         
@@ -525,7 +475,7 @@ s         */
     @Test
     public void testSendBusyToOutputOff() throws Exception {
         BusyLenzSimulator simul = new BusyLenzSimulator();
-        initializeLayout(simul, new TestUSBPacketizer(new LenzCommandStation()));
+        initializeLayout(simul, new USBPacketizerSupport());
         
         XNetTurnout t = (XNetTurnout)xnetManager.provideTurnout("21");
         // excess OFF messages are sent
@@ -595,7 +545,7 @@ s         */
     @Test
     public void testSendBusyErrorIgnoredNewCommandSent() throws Exception {
         BusyLenzSimulator simul = new BusyLenzSimulator();
-        initializeLayout(simul, new TestUSBPacketizer(new LenzCommandStation()));
+        initializeLayout(simul, new USBPacketizerSupport());
         
         XNetTurnout t = (XNetTurnout)xnetManager.provideTurnout("21");
         // excess OFF messages are sent
@@ -663,5 +613,5 @@ s         */
         clearErrors = true;
     }
     
-    private static final Logger LOG = LoggerFactory.getLogger(XNetTrafficControllerIT.class);
+    private static final Logger LOG = LoggerFactory.getLogger(XNetPlusTrafficControllerLegacyIT.class);
 }

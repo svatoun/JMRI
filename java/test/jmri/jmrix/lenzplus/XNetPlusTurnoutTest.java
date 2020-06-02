@@ -67,7 +67,7 @@ public class XNetPlusTurnoutTest extends JUnitTestBase {
 
     @Before
     @Override
-    public void setUp() {
+    public void setUp() throws Exception {
         super.setUp(); 
         tc.msgs.clear();
     }
