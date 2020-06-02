@@ -8,11 +8,12 @@ import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import jmri.NamedBean;
 import jmri.jmrix.SystemConnectionMemo;
 import jmri.jmrix.lenz.liusb.LIUSBXNetPacketizer;
 import jmri.jmrix.lenz.xnetsimulator.XNetSimulatorAdapter;
-import jmri.jmrix.lenzplus.XNetAdapter;
 import jmri.jmrix.lenzplus.XNetPlusMessage;
 import jmri.jmrix.lenzplus.XNetPlusReply;
 import jmri.util.NamedBeanComparator;
@@ -28,6 +29,8 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     private static final Logger LOG = LoggerFactory.getLogger(XNetTestSimulator.class);
+    
+    public static final XNetReply SKIP = new XNetReply("00 00 00");
     
     /**
      * The replies to be sent from simulated command station.
@@ -82,6 +85,10 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     
     private final Semaphore incomingMessage = new Semaphore(0);
     
+    private volatile Function<XNetMessage, XNetReply>   customReplyFunction;
+    
+    private volatile XNetReply nextReply;
+    
     /**
      * Class that allows the Simulator to initialize in presence of bad design doing
      * object registration in constructor.
@@ -109,6 +116,14 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
     public XNetTestSimulator(boolean dontRegistrerIgnore) {
         super(new NullConnectionMemo());
     }
+
+    public void setCustomReplyFunction(Function<XNetMessage, XNetReply> customReplyFunction) {
+        this.customReplyFunction = customReplyFunction;
+    }
+
+    public void setNextReply(XNetReply nextReply) {
+        this.nextReply = nextReply;
+    }
     
     /**
      * Will wait until the whole transmit queue is emptied and all replies sent.
@@ -124,13 +139,16 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
 
         XNetListener l = new XNetListenerScaffold() {
             @Override
-            public void message(XNetReply msg) {
-                incomingMessage.release();
+            public void message(XNetMessage msg) {
+                if (msg.getElement(0) != 0x01 || msg.getElement(1) != 0x00 || msg.getElement(2) != 0x01) {
+                    incomingMessage.release();
+                }
             }
         };
         try {
             getSystemConnectionMemo().getXNetTrafficController().addXNetListener(XNetTrafficController.ALL, l);
             do {
+                LOG.debug("Posting beacon");
                 ThreadingUtil.runOnGUIEventually(() -> {
                     getSystemConnectionMemo().getXNetTrafficController().sendXNetMessage(
                         // LI-* messages start with 0x01 0x01
@@ -141,9 +159,10 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
                             }
                         }
                     );
+                    LOG.debug("Beacon posted");
                 });
                 messageMarkerSemaphore.acquire();
-                LOG.debug("Marker message received, waiting for 200ms");
+                LOG.debug("Beacon received, waiting for 200ms");
                 incomingMessage.drainPermits();
             } while (incomingMessage.tryAcquire(200, TimeUnit.MILLISECONDS));
             LOG.debug("No incoming message for 200ms");
@@ -185,10 +204,26 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
         additionalReplies.add(r);
         return r;
     }
+    
+    Supplier<AbstractXNetInitializationManager> initMgr = () -> new XNetInitializationManager(getSystemConnectionMemo());
 
+    // just a trampoline to protected method.
     @Override
     public void configure(XNetTrafficController ctrls) {
         super.configure(ctrls);
+    }
+    
+    protected void superConfigure(XNetTrafficController ctrls) {
+        super.configure(ctrls);
+    }
+
+    public void setInitMgrProvider(Supplier<AbstractXNetInitializationManager> initMgr) {
+        this.initMgr = initMgr;
+    }
+
+    @Override
+    protected AbstractXNetInitializationManager createInitManager() {
+        return initMgr.get();
     }
 
     private void maybeWaitBeforeReply(XNetReply reply) {
@@ -209,7 +244,9 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
         XNetMessage msg = super.readMessage();
         if (captureMessages) {
             synchronized (this) {
-                outgoingMessages.add(msg);
+                if (msg.getElement(0) != 0x01 || msg.getElement(1) != 0x00 || msg.getElement(2) != 0x01) {
+                    outgoingMessages.add(msg);
+                }
             }
         }
         return msg;
@@ -259,13 +296,43 @@ public abstract class XNetTestSimulator extends XNetSimulatorAdapter {
      */
     @Override
     protected XNetReply generateReply(XNetMessage m) {
+        Function<XNetMessage, XNetReply> f = customReplyFunction;
         XNetPlusMessage m2 = XNetPlusMessage.create(m);
+        XNetPlusReply r2 = null;
+        
         insertAdditionalReplies(m2);
         if (m.getElement(0) == 0x01 && m.getElement(1) == 0x00) {
             // bypass reply buffer.
             return new XNetReply("01 04 05");
         }
-        XNetPlusReply r2 = plusReply(super.generateReply(m2));
+        XNetReply rr = null;
+        if (nextReply != null) {
+            rr = nextReply;
+            nextReply = null;
+        } else if (f != null) {
+            rr = f.apply(m);
+        }
+        if (rr != null) {
+            if (rr == SKIP) {
+                return null;
+            }
+            r2 = XNetPlusReply.create(rr);
+            if (r2 != null) {
+                r2.setResponseTo(m2);
+            }
+        }
+        if (r2 == null) {
+            r2 = plusReply(super.generateReply(m2));
+        }
+        if (r2 == null) {
+            insertAdditionalReplies(m2);
+            if (replyBuffer.isEmpty()) {
+                return null;
+            } else {
+                XNetReply r = replyBuffer.remove(0);
+                return captureReply(r);
+            }
+        }
         XNetReply reply = r2;
         r2.setResponseTo(m2);
         if (isPrimaryReply(m)) {
